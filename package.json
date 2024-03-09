@@ -1,0 +1,45 @@
+{
+	"name": "@adraffy/blocksmith",
+	"version": "0.0.1",
+	"description": "Minimal Ethereum Testing Framework for Foundry + ethers",
+	"type": "module",
+	"exports": {
+		"*": {
+			"types": "./dist/index.d.ts",
+			"import": "./dist/index.mjs",
+			"default": "./dist/index.cjs"
+		}
+	},
+	"files": [
+		"./dist"
+	],
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/adraffy/blocksmith.js.git"
+	},
+	"license": "MIT",
+	"bugs": {
+		"url": "https://github.com/adraffy/blocksmith.js/issues"
+	},
+	"homepage": "https://github.com/adraffy/blocksmith.js#readme",
+	"author": "raffy.eth",
+	"scripts": {
+		"test": "node test/example.js",
+		"build": "rollup -c"
+	},
+	"dependencies": {
+		"ethers": "^6.11.1",
+		"toml": "^3.0.0"
+	},
+	"devDependencies": {
+		"rollup": "^4.12.1"
+	},
+	"keywords": [
+		"Ethereum",
+		"Foundry",
+		"Forge",
+		"Hardhat",
+		"ENS",
+		"Ethereum Naming System"
+	]
+}
