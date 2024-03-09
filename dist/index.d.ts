@@ -1,4 +1,4 @@
-import {HDNodeWallet, JsonRpcProvider, Contract} from "ethers";
+import {HDNodeWallet, TransactionReceipt, JsonRpcProvider, Contract} from "ethers";
 import {ChildProcess} from "node:child_process";
 
 type Wallet = HDNodeWallet & {name: string};
@@ -24,16 +24,24 @@ export class Foundry {
 	readonly provider: JsonRpcProvider;
 	readonly wallets: Wallet[];
 	readonly deployed: Map<string, Contract>;
+	readonly info: {
+		base: string;
+		mnemonic: string;
+		endpoint: string;
+		chain: number;
+		port: number;
+		config: Object;
+	};
 	
 	resolve(path: string): string;
 	wallet(wallet: WalletLike): Wallet;
-	deploy<T>(options: {
+	deploy<P>(options: {
 		wallet?: WalletLike;
 		name?: string;
 		file?: string;
 		contract?: string;
 		args?: any[];		
-	}, proto?: T): Promise<Contract & T>;
+	}, proto?: P): Promise<Contract & P & {receipt: TransactionReceipt}>;
 	shutdown(): void;
 }
 
@@ -44,6 +52,7 @@ export class Node extends Map {
 	readonly nodehash: string;
 	readonly label: string;
 	readonly labelhash: string;
+	readonly info: {wild: boolean, drop: number, tor: boolean};
 
 	find(name: string): Node | undefined;
 	create(name: string): Node;

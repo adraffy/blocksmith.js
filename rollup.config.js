@@ -13,6 +13,6 @@ export default defineConfig([
 				format: 'cjs',
 			},
 		],
-		external: id => id.startsWith('@')
+		external: /^@|^node:|^[^/]+$/
 	}
 ]);

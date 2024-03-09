@@ -20,5 +20,6 @@ console.log({
 	name: node.name.toString(),
 	basename: resolver.base.toString(),
 	resolver: resolver.contract.target,
+	info: resolver.info,
 });
 console.log(records);
