@@ -26,9 +26,9 @@ export class Foundry {
 			dir = parent;
 		}
 	}
-	static launch({
+	static async launch({
 		port = 8545, 
-		chain = 1, 
+		chain, 
 		block_sec = 1, 
 		accounts = 5, 
 		autoclose = true, 
@@ -40,9 +40,9 @@ export class Foundry {
 			config = config.profile[this.profile()];
 			let args = [
 				'--port', port,
-				'--chain-id', chain,
 				'--accounts', accounts
 			];
+			if (chain) args.push('--chain-id', chain);
 			if (block_sec) args.push('--block-time', block_sec);
 			if (fork) args.push('--fork-url', fork);
 			let proc = spawn('anvil', args);

@@ -7,7 +7,7 @@ var promises = require('node:fs/promises');
 var node_path = require('node:path');
 var toml = require('toml');
 
-function error_with(message, options, cause) {
+function error_with(message, params, cause) {
 	let error;
 	if (cause) {
 		error = new Error(message, {cause});
@@ -15,18 +15,21 @@ function error_with(message, options, cause) {
 	} else {
 		error = new Error(message);
 	}
-	return Object.assign(error, options);
+	return Object.assign(error, params);
 }
 
+// extract an address from ethers objects
 function to_address(x) {
 	if (x instanceof ethers.ethers.Contract) {
 		return x.target;
+	} else if (x instanceof ethers.ethers.BaseWallet) {
+		return x.address;
 	} else if (typeof x === 'string') {
 		return x;
 	} else if (!x) {
 		return ethers.ethers.ZeroAddress;
-	} 
-	throw new Error('expected address');
+	}
+	throw error_with('unable to coerce address', {input: x});
 }
 
 const CONFIG_NAME = 'foundry.toml';
@@ -49,9 +52,9 @@ class Foundry {
 			dir = parent;
 		}
 	}
-	static launch({
+	static async launch({
 		port = 8545, 
-		chain = 1, 
+		chain, 
 		block_sec = 1, 
 		accounts = 5, 
 		autoclose = true, 
@@ -63,9 +66,9 @@ class Foundry {
 			config = config.profile[this.profile()];
 			let args = [
 				'--port', port,
-				'--chain-id', chain,
 				'--accounts', accounts
 			];
+			if (chain) args.push('--chain-id', chain);
 			if (block_sec) args.push('--block-time', block_sec);
 			if (fork) args.push('--fork-url', fork);
 			let proc = node_child_process.spawn('anvil', args);

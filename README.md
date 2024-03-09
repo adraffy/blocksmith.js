@@ -16,7 +16,7 @@
 
 ### Example
 
-[example.js](./test/example.js)
+[`example.js`](./test/example.js)
 ```js
 import {Foundry} from '@adraffy/blocksmith';
 import {before, test, after} from 'node:test';
