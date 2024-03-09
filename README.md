@@ -1,5 +1,7 @@
 # blocksmith.js
 
+⚠️ This repo is under active development!
+
 `npm i @adraffy/blocksmith`
 
 * see [**types**](./dist/index.d.ts) / designed for [Foundry](https://github.com/foundry-rs/foundry) + [ethers](https://github.com/ethers-io/ethers.js).
@@ -39,4 +41,16 @@ test('onchain wildcard: NFTResolver', async () => {
 test('offchain wildcard: TheOffchainGateway', async () => {
 	assert.equal(await foundry.provider.resolveName('fixed.tog.raffy.eth'), raffy);
 });
+test('deploy a contract', async () => {
+	// deploy contract using wallet(0), uses forge to compile
+	// returns an ethers Contract w/signer + ABI
+	let ens = foundry.deploy({name: 'MyContract'});
+	let owner = await ens.owner(ethers.ZeroHash);
+});
 ```
+
+## Additional Tooling
+
+* [`Node`](./src/Node.js) is client-side scaffolding to manage name/label/namehash/labelhash which simplifies many ENS-related functions that require a variety of inputs.
+
+* [`Resolver`](./src/Resolver.js) is a [**TOR**](https://github.com/resolverworks/TheOffchainResolver.sol)-aware [ENSIP-10](https://docs.ens.domains/ensip/10) resolver implementation.

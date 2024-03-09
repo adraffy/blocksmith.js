@@ -1,10 +1,11 @@
 import {HDNodeWallet, TransactionReceipt, JsonRpcProvider, Contract} from "ethers";
 import {ChildProcess} from "node:child_process";
 
-type Wallet = HDNodeWallet & {name: string};
+type DevWallet = HDNodeWallet & {name: string};
+type DeployedContract = Contract & {receipt: TransactionReceipt};
 
 type PathLike = string | URL;
-type WalletLike = number | string | Wallet;
+type WalletLike = number | string | DevWallet;
 
 export class Foundry {
 	static base(dir?: PathLike): string;
@@ -22,8 +23,8 @@ export class Foundry {
 
 	readonly proc: ChildProcess;
 	readonly provider: JsonRpcProvider;
-	readonly wallets: Wallet[];
-	readonly deployed: Map<string, Contract>;
+	readonly wallets: DevWallet[];
+	readonly deployed: Map<string, DeployedContract>;
 	readonly info: {
 		base: string;
 		mnemonic: string;
@@ -34,14 +35,14 @@ export class Foundry {
 	};
 	
 	resolve(path: string): string;
-	wallet(wallet: WalletLike): Wallet;
+	wallet(wallet: WalletLike): DevWallet;
 	deploy<P>(options: {
 		wallet?: WalletLike;
 		name?: string;
 		file?: string;
 		contract?: string;
 		args?: any[];		
-	}, proto?: P): Promise<Contract & P & {receipt: TransactionReceipt}>;
+	}, proto?: P): Promise<DeployedContract & P>;
 	shutdown(): void;
 }
 
@@ -76,8 +77,7 @@ export class Resolver {
 	readonly contract: Contract;
 	
 	fetch(records: RecordQuery[], options?: {multi?: boolean, tor_prefix?: string}): Promise<RecordResult[]>
-
 }
 
 export function error_with(message: string, options: Object, cause?: any);
-export function to_address(thing: Contract | Wallet | null | undefined): string;
+export function to_address(thing: Contract | DevWallet | null | undefined): string;

@@ -1,5 +1,8 @@
 import {ethers} from 'ethers';
 
+const IFACE_ENSIP_10 = '0x9061b923';
+const IFACE_TOR = '0x73302a25';
+
 export class Resolver {
 	static async dump(ens, node) {
 		let nodes = node.nodes();
@@ -25,9 +28,9 @@ export class Resolver {
 				'function name(bytes32 node) view returns (string)',
 				'function multicall(bytes[] calldata data) external returns (bytes[] memory results)',
 			], ens.runner.provider);
-			let wild = await contract.supportsInterface('0x9061b923');
+			let wild = await contract.supportsInterface(IFACE_ENSIP_10);
 			if (drop && !wild) break;
-			let tor = wild && await contract.supportsInterface('0x73302a25');
+			let tor = wild && await contract.supportsInterface(IFACE_TOR);
 			return new this(node, base, contract, {wild, drop, tor});
 		}
 	}
