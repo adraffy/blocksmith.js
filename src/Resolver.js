@@ -40,7 +40,7 @@ export class Resolver {
 		this.contract = contract;
 		this.info = info;
 	}
-	async fetch(records, {multi = true, tor_prefix} = {}) {
+	async fetch(records, {multi = true, tor} = {}) {
 		const options = {enableCcipRead: true};
 		const {node, info: {wild}, contract} = this;
 		const {interface: abi} = contract;
@@ -53,7 +53,7 @@ export class Resolver {
 				return abi.encodeFunctionData(frag, params);
 			});
 			let frag = abi.getFunction('multicall');
-			let call = add_prefix(abi.encodeFunctionData(frag, [encoded]), tor_prefix);	
+			let call = tor_prefix(abi.encodeFunctionData(frag, [encoded]), tor);	
 			let data = await contract.resolve(dnsname, call, options);
 			let [answers] = abi.decodeFunctionResult(frag, data);
 			return [records.map((rec, i) => {
@@ -76,7 +76,7 @@ export class Resolver {
 				let res;
 				if (wild) {
 					let frag = abi.getFunction(type);
-					let call = add_prefix(abi.encodeFunctionData(frag, params), tor_prefix);
+					let call = tor_prefix(abi.encodeFunctionData(frag, params), tor);
 					let answer = await contract.resolve(dnsname, call, options);
 					res = abi.decodeFunctionResult(frag, answer);
 					if (res.length === 1) res = res[0];
@@ -106,7 +106,7 @@ function record_type(rec) {
 	return type;
 }
 
-function add_prefix(call, prefix) {
+function tor_prefix(call, prefix) {
 	switch (prefix) {
 		case 'off': return '0x000000FF' + call.slice(2);
 		case 'on':  return '0xFFFFFF00' + call.slice(2);

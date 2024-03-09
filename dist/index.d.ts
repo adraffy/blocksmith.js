@@ -6,6 +6,7 @@ type DeployedContract = Contract & {receipt: TransactionReceipt};
 
 type PathLike = string | URL;
 type WalletLike = number | string | DevWallet;
+type UndefNull  = null | undefined; 
 
 export class Foundry {
 	static base(dir?: PathLike): string;
@@ -68,6 +69,7 @@ export class Node extends Map {
 
 type RecordQuery = {type: 'addr' | 'text' | 'contenthash' | 'pubkey' | 'name', arg?: any};
 type RecordResult = {rec: RecordQuery, res?: any, error?: Error};
+type TORPrefix =  'on' | 'off' | UndefNull;
 
 export class Resolver {
 	static get(ens: Contract, node: Node): Promise<Resolver | undefined>;
@@ -76,8 +78,8 @@ export class Resolver {
 	readonly base: Node;
 	readonly contract: Contract;
 	
-	fetch(records: RecordQuery[], options?: {multi?: boolean, tor_prefix?: string}): Promise<RecordResult[]>
+	fetch(records: RecordQuery[], options?: {multi?: boolean, tor?: TORPrefix}): Promise<RecordResult[]>
 }
 
 export function error_with(message: string, options: Object, cause?: any);
-export function to_address(thing: Contract | DevWallet | null | undefined): string;
+export function to_address(thing: Contract | DevWallet | UndefNull): string;

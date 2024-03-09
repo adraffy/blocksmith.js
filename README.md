@@ -24,28 +24,28 @@ import assert from 'node:assert/strict';
 
 let foundry;
 before(async () => {
-	foundry = await Foundry.launch({
-		fork: 'https://cloudflare-eth.com', // launch anvil using mainnet fork
-		log: true, // print to console.log()
-	});
+    foundry = await Foundry.launch({
+        fork: 'https://cloudflare-eth.com', // launch anvil using mainnet fork
+        log: true, // print to console.log()
+    });
 });
 after(() => foundry.shutdown());
 
 const raffy = '0x51050ec063d393217B436747617aD1C2285Aeeee';
 test('raffy.eth', async () => {
-	assert.equal(await foundry.provider.resolveName('raffy.eth'), raffy);
+    assert.equal(await foundry.provider.resolveName('raffy.eth'), raffy);
 });
 test('onchain wildcard: NFTResolver', async () => {
-	assert.equal(await foundry.provider.resolveName('331.moo.nft-owner.eth'), raffy);
+    assert.equal(await foundry.provider.resolveName('331.moo.nft-owner.eth'), raffy);
 });
 test('offchain wildcard: TheOffchainGateway', async () => {
-	assert.equal(await foundry.provider.resolveName('fixed.tog.raffy.eth'), raffy);
+    assert.equal(await foundry.provider.resolveName('fixed.tog.raffy.eth'), raffy);
 });
 test('deploy a contract', async () => {
-	// deploy contract using wallet(0), uses forge to compile
-	// returns an ethers Contract w/signer + ABI
-	let ens = foundry.deploy({name: 'MyContract'});
-	let owner = await ens.owner(ethers.ZeroHash);
+    // deploy contract using wallet(0), uses forge to compile
+    // returns an ethers Contract w/signer + ABI
+    let ens = foundry.deploy({name: 'MyContract'});
+    let owner = await ens.owner(ethers.ZeroHash);
 });
 ```
 
