@@ -72,18 +72,20 @@ class Foundry {
 			}
 			//proc.stdin.close();
 			proc.stderr.once('data', fail);
-			proc.stdout.once('data', buf => {
+			proc.stdout.once('data', async buf => {
 				let init = buf.toString();
 				let mnemonic, derivation, host;
 				for (let x of init.split('\n')) {
 					let match;
 					if (match = x.match(/^Mnemonic:(.*)$/)) {
+						// Mnemonic: test test test test test test test test test test test junk
 						mnemonic = match[1].trim();
 					} else if (match = x.match(/^Derivation path:(.*)$/)) {
+						// Derivation path:   m/44'/60'/0'/0/
 						derivation = match[1].trim();
 					} else if (match = x.match(/^Listening on (.*)$/)) {
 						host = match[1].trim();
-					}
+					} 
  				}
 				if (!mnemonic || !host || !derivation) {
 					proc.kill();
@@ -105,6 +107,9 @@ class Foundry {
 				}
 				let endpoint = `http://${host}`;
 				let provider = new ethers.JsonRpcProvider(endpoint, chain, {staticNetwork: true, pollingInterval: 50});
+				if (!chain) {
+					chain = parseInt(await provider.send('eth_chainId')); // determine chain id
+				}
 				let wallets = Array.from({length: accounts}, (_, i) => {
 					let wallet = ethers.HDNodeWallet.fromPhrase(mnemonic, '', derivation + i).connect(provider);
 					wallet.name = `dev#${i}`;
@@ -113,7 +118,7 @@ class Foundry {
 					return wallet;
 				});
 				proc.stdout.removeListener('data', fail);
-				ful(new this(proc, provider, wallets, {base, mnemonic, endpoint, chain, port, config}));
+				ful(new this(proc, provider, wallets, {base, endpoint, chain, port, config}));
 			});
 		});
 	}
@@ -128,21 +133,21 @@ class Foundry {
 		this.proc.kill();
 		this.provider.destroy();
 	}
-	wallet(x, optional) {
+	// require a signer from: index | address | self
+	wallet(x) {
 		let {wallets: v} = this;
 		if (Number.isInteger(x)) {
 			if (x >= 0 && x < v.length) return v[x];
-		} else if (typeof x === 'string') {
+		} else if (is_address(x)) {
 			let wallet = v.find(y => y.address === x);
 			if (wallet) return wallet;
 		} else if (v.includes(x)) {
 			return x;
 		} 
-		if (!optional) {
-			throw error_with('expected wallet', {wallet: x});
-		}
+		throw error_with('expected wallet', {wallet: x});
 	}
-	title(x) {
+	// get a name for a contract or wallet
+	desc(x) {
 		let a = to_address(x);
 		if (a) {
 			let deploy = this.deployed.get(a);
@@ -165,10 +170,10 @@ class Foundry {
 		// replace any known address with it's name
 		for (let [k, v] of Object.entries(args)) {
 			if (is_address(v)) {
-				args[k] = this.title(v);
+				args[k] = this.desc(v);
 			}
 		}
-		console.log(`${from.name} ${contract.impl}.${desc.name}()`, args);
+		console.log(`${from.name} ${contract.name}.${desc.name}()`, args);
 		return receipt;
 	}
 	// resolve(path) {
@@ -196,16 +201,22 @@ class Foundry {
 		let contract = new ethers.Contract(address, abi, wallet);
 		this.deployed.set(address, contract);
 		//let tx = await wallet.provider.getTransaction(hash);
+		let code = ethers.getBytes(await wallet.provider.getCode(address));
 		let receipt = await wallet.provider.getTransactionReceipt(hash);
 		Object.assign(contract, proto, {
 			receipt, 
+			name: impl,
 			file: join(base, code_path), 
-			name: impl
+			code,
 		});
-		console.log(`${wallet.name} Deployed: ${impl} @ ${address}`, {gas: receipt.gasUsed});
+		console.log(`${wallet.name} Deployed: ${impl} @ ${address}`, {gas: receipt.gasUsed, size: code.length});
 		//wallet.nonce = tx.nonce + 1; // this didn't go through normal channels
 		return contract;
 	}
+}
+
+function split(s) {
+	return s ? s.split('.') : [];
 }
 
 class Node extends Map {
@@ -220,31 +231,31 @@ class Node extends Map {
 		this.labelhash = labelhash;
 	}
 	get root() {
-		let node = this;
-		while (node.parent) {
-			node = node.parent;
-		}
-		return node;
+		let x = this;
+		while (x.parent) x = x.parent;
+		return x;
 	}
 	get name() {
+		if (!this.parent) return '';
 		let v = [];
-		for (let node = this; node.parent != null; node = node.parent) {
-			v.push(node.label);
-		}
+		for (let x = this; x.parent; x = x.parent) v.push(x.label);
 		return v.join('.');
 	}
-	nodes(v = []) {
-		v.push(this);
-		for (let x of this.values()) x.nodes(v);
-		return v;
+	get depth() {
+		let n = 0;
+		for (let x = this; x.parent; x = x.parent) ++n;
+		return n;
+	}
+	get nodes() {
+		let n = 0;
+		this.scan(() => ++n);
+		return n;
 	}
 	find(name) {
-		if (!name) return this;
-		return name.split('.').reduceRight((n, s) => n?.get(s), this);
+		return split(name).reduceRight((n, s) => n?.get(s), this);
 	}
 	create(name) {
-		if (!name) return this;
-		return name.split('.').reduceRight((n, s) => n.child(s), this);
+		return split(name).reduceRight((n, s) => n.child(s), this);
 	}
 	unique(prefix = 'u') {
 		for (let i = 1; ; i++) {
@@ -253,20 +264,28 @@ class Node extends Map {
 		}
 	}
 	child(label) {
-		let c = this.get(label);
-		if (!c) {
+		let node = this.get(label);
+		if (!node) {
 			let labelhash = ethers.id(label);
 			let namehash = ethers.solidityPackedKeccak256(['bytes32', 'bytes32'], [this.namehash, labelhash]);
-			c = new this.constructor(this, namehash, label, labelhash);
-			this.set(label, c);
+			node = new this.constructor(this, namehash, label, labelhash);
+			this.set(label, node);
 		}
-		return c;
+		return node;
 	}
-	print(format = x => x.label, level = 0) {
-		console.log('  '.repeat(level++), format(this));
+	scan(fn, level = 0) {
+		fn(this, level++);
 		for (let x of this.values()) {
-			x.print(format, level);
+			x.scan(fn, level);
 		}
+	}
+	flat() {
+		let v = [];
+		this.scan(x => v.push(x));
+		return v;
+	}
+	print(format = x => x.label) {
+		this.scan((x, n) => console.log('  '.repeat(n) + format(x)));
 	}
 	toString() {
 		return this.name;
@@ -319,18 +338,18 @@ class Resolver {
 	async text(key, a)   { return this.record({type: 'text', arg: key}, a); }
 	async addr(type, a)  { return this.record({type: 'addr', arg: type}, a); }
 	async contenthash(a) { return this.record({type: 'contenthash'}, a); }
-	async record(record, a) {
-		let [[{res, err}]] = await this.records([record], a);
+	async record(rec, a) {
+		let [[{res, err}]] = await this.records([rec], a);
 		if (err) throw err;
 		return res;
 	}
-	async records(records, {multi = true, ccip = true, tor} = {}) {
+	async records(recs, {multi = true, ccip = true, tor} = {}) {
 		const options = {enableCcipRead: ccip};
 		const {node, info: {wild}, contract} = this;
 		const {interface: abi} = contract;
 		let dnsname = ethers.dnsEncode(node.name, 255);
-		if (multi && records.length > 1 && wild && this.info.tor) {
-			let encoded = records.map(rec => {
+		if (multi && recs.length > 1 && wild && this.info.tor) {
+			let encoded = recs.map(rec => {
 				let frag = abi.getFunction(record_type(rec));
 				let params = [node.namehash];
 				if ('arg' in rec) params.push(rec.arg);
@@ -340,7 +359,7 @@ class Resolver {
 			let call = tor_prefix(abi.encodeFunctionData(frag, [encoded]), tor);	
 			let data = await contract.resolve(dnsname, call, options);
 			let [answers] = abi.decodeFunctionResult(frag, data);
-			return [records.map((rec, i) => {
+			return [recs.map((rec, i) => {
 				let frag = abi.getFunction(record_type(rec));
 				let answer = answers[i];
 				try {
@@ -352,7 +371,7 @@ class Resolver {
 				}
 			}), true];
 		}
-		return [await Promise.all(records.map(async rec => {
+		return [await Promise.all(recs.map(async rec => {
 			let params = [node.namehash];
 			if (rec.arg) params.push(rec.arg);
 			try {

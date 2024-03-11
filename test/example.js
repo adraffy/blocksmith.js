@@ -19,3 +19,7 @@ test('onchain wildcard: NFTResolver', async () => {
 test('offchain wildcard: TheOffchainGateway', async () => {
 	assert.equal(await foundry.provider.resolveName('fixed.tog.raffy.eth'), raffy);
 });
+test('deploy and test contract', async () => {
+	let demo = await foundry.deploy({name: 'Example'});
+	assert.equal(await demo.f(69, 420), 69420n);
+});

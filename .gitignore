@@ -1,3 +1,9 @@
-node_modules/
 junk/
+
+# npm
+node_modules/
 npm-test/
+
+# forge
+out/
+cache/

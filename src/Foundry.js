@@ -98,7 +98,7 @@ export class Foundry {
 					return wallet;
 				});
 				proc.stdout.removeListener('data', fail);
-				ful(new this(proc, provider, wallets, {base, mnemonic, endpoint, chain, port, config}));
+				ful(new this(proc, provider, wallets, {base, endpoint, chain, port, config}));
 			});
 		});
 	}
@@ -113,7 +113,7 @@ export class Foundry {
 		this.proc.kill();
 		this.provider.destroy();
 	}
-	// find a signer from: index | address | self
+	// require a signer from: index | address | self
 	wallet(x) {
 		let {wallets: v} = this;
 		if (Number.isInteger(x)) {
@@ -127,7 +127,7 @@ export class Foundry {
 		throw error_with('expected wallet', {wallet: x});
 	}
 	// get a name for a contract or wallet
-	name(x) {
+	desc(x) {
 		let a = to_address(x);
 		if (a) {
 			let deploy = this.deployed.get(a);
@@ -150,7 +150,7 @@ export class Foundry {
 		// replace any known address with it's name
 		for (let [k, v] of Object.entries(args)) {
 			if (is_address(v)) {
-				args[k] = this.name(v);
+				args[k] = this.desc(v);
 			}
 		}
 		console.log(`${from.name} ${contract.name}.${desc.name}()`, args);
@@ -181,13 +181,15 @@ export class Foundry {
 		let contract = new ethers.Contract(address, abi, wallet);
 		this.deployed.set(address, contract);
 		//let tx = await wallet.provider.getTransaction(hash);
+		let code = ethers.getBytes(await wallet.provider.getCode(address));
 		let receipt = await wallet.provider.getTransactionReceipt(hash);
 		Object.assign(contract, proto, {
 			receipt, 
+			name: impl,
 			file: join(base, code_path), 
-			name: impl
+			code,
 		});
-		console.log(`${wallet.name} Deployed: ${impl} @ ${address}`, {gas: receipt.gasUsed});
+		console.log(`${wallet.name} Deployed: ${impl} @ ${address}`, {gas: receipt.gasUsed, size: code.length});
 		//wallet.nonce = tx.nonce + 1; // this didn't go through normal channels
 		return contract;
 	}

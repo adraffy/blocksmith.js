@@ -46,18 +46,18 @@ export class Resolver {
 	async text(key, a)   { return this.record({type: 'text', arg: key}, a); }
 	async addr(type, a)  { return this.record({type: 'addr', arg: type}, a); }
 	async contenthash(a) { return this.record({type: 'contenthash'}, a); }
-	async record(record, a) {
-		let [[{res, err}]] = await this.records([record], a);
+	async record(rec, a) {
+		let [[{res, err}]] = await this.records([rec], a);
 		if (err) throw err;
 		return res;
 	}
-	async records(records, {multi = true, ccip = true, tor} = {}) {
+	async records(recs, {multi = true, ccip = true, tor} = {}) {
 		const options = {enableCcipRead: ccip};
 		const {node, info: {wild}, contract} = this;
 		const {interface: abi} = contract;
 		let dnsname = ethers.dnsEncode(node.name, 255);
-		if (multi && records.length > 1 && wild && this.info.tor) {
-			let encoded = records.map(rec => {
+		if (multi && recs.length > 1 && wild && this.info.tor) {
+			let encoded = recs.map(rec => {
 				let frag = abi.getFunction(record_type(rec));
 				let params = [node.namehash];
 				if ('arg' in rec) params.push(rec.arg);
@@ -67,7 +67,7 @@ export class Resolver {
 			let call = tor_prefix(abi.encodeFunctionData(frag, [encoded]), tor);	
 			let data = await contract.resolve(dnsname, call, options);
 			let [answers] = abi.decodeFunctionResult(frag, data);
-			return [records.map((rec, i) => {
+			return [recs.map((rec, i) => {
 				let frag = abi.getFunction(record_type(rec));
 				let answer = answers[i];
 				try {
@@ -79,7 +79,7 @@ export class Resolver {
 				}
 			}), true];
 		}
-		return [await Promise.all(records.map(async rec => {
+		return [await Promise.all(recs.map(async rec => {
 			let params = [node.namehash];
 			if (rec.arg) params.push(rec.arg);
 			try {
