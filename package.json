@@ -1,6 +1,6 @@
 {
 	"name": "@adraffy/blocksmith",
-	"version": "0.0.4",
+	"version": "0.0.5",
 	"description": "Minimal Ethereum Testing Framework for Foundry + ethers",
 	"type": "module",
 	"types": "./dist/index.d.ts",
