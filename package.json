@@ -1,6 +1,6 @@
 {
 	"name": "@adraffy/blocksmith",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"description": "Minimal Ethereum Testing Framework for Foundry + ethers",
 	"type": "module",
 	"main": "./dist/index.cjs",
@@ -20,7 +20,8 @@
 	"homepage": "https://github.com/adraffy/blocksmith.js#readme",
 	"author": "raffy.eth",
 	"scripts": {
-		"test": "node test/example.js",
+		"test": "node test/all.js",
+		"start": "node test/example.js",
 		"build": "rollup -c"
 	},
 	"dependencies": {

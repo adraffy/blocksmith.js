@@ -12,14 +12,16 @@
 
 1. install [`foundryup`](https://book.getfoundry.sh/getting-started/installation)
 1. `npm i`
-1. `npm run test`
+1. `npm run start`
 
-### Example
+### Examples
 
-[`example.js`](./test/example.js)
+* [`example.js`](./test/example.js)
+* [Complex Example: TOR ](https://github.com/resolverworks/TheOffchainResolver.sol/blob/main/test/test.js)
+
 ```js
 import {Foundry} from '@adraffy/blocksmith';
-import {before, test, after} from 'node:test';
+import {test, before, after} from 'node:test';
 import assert from 'node:assert/strict';
 
 let foundry;
@@ -44,8 +46,10 @@ test('offchain wildcard: TheOffchainGateway', async () => {
 test('deploy a contract', async () => {
     // deploy contract using wallet(0), uses forge to compile
     // returns an ethers Contract w/signer + ABI
-    let ens = foundry.deploy({name: 'MyContract'});
-    let owner = await ens.owner(ethers.ZeroHash);
+    let contract = await foundry.deploy({name: 'MyContract'});
+    let one = await ens.get(1);
+    // send a transaction, confirm it, human-readable console.log
+    await foundry.confirm(contract.set(2));
 });
 ```
 

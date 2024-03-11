@@ -1,5 +1,3 @@
-import {ethers} from 'ethers';
-
 export function error_with(message, params, cause) {
 	let error;
 	if (cause) {
@@ -11,16 +9,12 @@ export function error_with(message, params, cause) {
 	return Object.assign(error, params);
 }
 
-// extract an address from ethers objects
+export function is_address(s) {
+	return typeof s === 'string' && /^0x[0-9a-f]{40}$/i.test(s);
+}
+
 export function to_address(x) {
-	if (x instanceof ethers.Contract) {
-		return x.target;
-	} else if (x instanceof ethers.BaseWallet) {
-		return x.address;
-	} else if (typeof x === 'string') {
-		return x;
-	} else if (!x) {
-		return ethers.ZeroAddress;
-	}
-	throw error_with('unable to coerce address', {input: x});
+	if (is_address(x)) return x;
+	if (is_address(x.target)) return x.target;
+	if (is_address(x.address)) return x.address;
 }

@@ -1,4 +1,4 @@
-import {HDNodeWallet, TransactionReceipt, JsonRpcProvider, Contract} from "ethers";
+import {HDNodeWallet, TransactionReceipt, TransactionResponse, JsonRpcProvider, Contract} from "ethers";
 import {ChildProcess} from "node:child_process";
 
 type DevWallet = HDNodeWallet & {name: string};
@@ -6,7 +6,6 @@ type DeployedContract = Contract & {receipt: TransactionReceipt};
 
 type PathLike = string | URL;
 type WalletLike = number | string | DevWallet;
-type UndefNull  = null | undefined; 
 
 export class Foundry {
 	static base(dir?: PathLike): string;
@@ -34,16 +33,17 @@ export class Foundry {
 		port: number;
 		config: Object;
 	};
-	
+	title<T>(x: T): string | T;
 	resolve(path: string): string;
 	wallet(wallet: WalletLike): DevWallet;
 	deploy<P>(options: {
 		wallet?: WalletLike;
 		name?: string;
-		file?: string;
 		contract?: string;
 		args?: any[];		
 	}, proto?: P): Promise<DeployedContract & P>;
+	confirm(call: Promise<TransactionResponse>, info?: Object): Promise<TransactionReceipt>;
+
 	shutdown(): void;
 }
 
@@ -55,21 +55,24 @@ export class Node extends Map {
 	readonly label: string;
 	readonly labelhash: string;
 	readonly info: {wild: boolean, drop: number, tor: boolean};
+	
+	get name(): string;
+	get depth(): number;
+	get nodes(): number;
 
 	find(name: string): Node | undefined;
 	create(name: string): Node;
 	child(label: string): Node;
 	unique(prefix?: string): Node;
 
-	nodes(): Node[];
-
-	get name(): string;
+	scan(fn: (node: Node, level: number) => void, level?: number): void;
+	flat(): Node[];
 	print(): void;
 }
 
 type RecordQuery = {type: 'addr' | 'text' | 'contenthash' | 'pubkey' | 'name', arg?: any};
 type RecordResult = {rec: RecordQuery, res?: any, error?: Error};
-type TORPrefix =  'on' | 'off' | UndefNull;
+type TORPrefix =  'on' | 'off' | undefined;
 
 export class Resolver {
 	static get(ens: Contract, node: Node): Promise<Resolver | undefined>;
@@ -82,4 +85,4 @@ export class Resolver {
 }
 
 export function error_with(message: string, options: Object, cause?: any);
-export function to_address(thing: Contract | DevWallet | UndefNull): string;
+export function to_address(thing: Contract | DevWallet | undefined): string;

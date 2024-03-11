@@ -1,5 +1,9 @@
 import {ethers} from 'ethers';
 
+function split(s) {
+	return s ? s.split('.') : [];
+}
+
 export class Node extends Map {
 	static root() {
 		return new this(null, ethers.ZeroHash, '[root]');
@@ -12,31 +16,31 @@ export class Node extends Map {
 		this.labelhash = labelhash;
 	}
 	get root() {
-		let node = this;
-		while (node.parent) {
-			node = node.parent;
-		}
-		return node;
+		let x = this;
+		while (x.parent) x = x.parent;
+		return x;
 	}
 	get name() {
+		if (!this.parent) return '';
 		let v = [];
-		for (let node = this; node.parent != null; node = node.parent) {
-			v.push(node.label);
-		}
+		for (let x = this; x.parent; x = x.parent) v.push(x.label);
 		return v.join('.');
 	}
-	nodes(v = []) {
-		v.push(this);
-		for (let x of this.values()) x.nodes(v);
-		return v;
+	get depth() {
+		let n = 0;
+		for (let x = this; x.parent; x = x.parent) ++n;
+		return n;
+	}
+	get nodes() {
+		let n = 0;
+		this.scan(() => ++n);
+		return n;
 	}
 	find(name) {
-		if (!name) return this;
-		return name.split('.').reduceRight((n, s) => n?.get(s), this);
+		return split(name).reduceRight((n, s) => n?.get(s), this);
 	}
 	create(name) {
-		if (!name) return this;
-		return name.split('.').reduceRight((n, s) => n.child(s), this);
+		return split(name).reduceRight((n, s) => n.child(s), this);
 	}
 	unique(prefix = 'u') {
 		for (let i = 1; ; i++) {
@@ -45,20 +49,28 @@ export class Node extends Map {
 		}
 	}
 	child(label) {
-		let c = this.get(label);
-		if (!c) {
+		let node = this.get(label);
+		if (!node) {
 			let labelhash = ethers.id(label)
 			let namehash = ethers.solidityPackedKeccak256(['bytes32', 'bytes32'], [this.namehash, labelhash]);
-			c = new this.constructor(this, namehash, label, labelhash);
-			this.set(label, c);
+			node = new this.constructor(this, namehash, label, labelhash);
+			this.set(label, node);
 		}
-		return c;
+		return node;
 	}
-	print(format = x => x.label, level = 0) {
-		console.log('  '.repeat(level++), format(this));
+	scan(fn, level = 0) {
+		fn(this, level++);
 		for (let x of this.values()) {
-			x.print(format, level);
+			x.scan(fn, level);
 		}
+	}
+	flat() {
+		let v = [];
+		this.scan(x => v.push(x));
+		return v;
+	}
+	print(format = x => x.label) {
+		this.scan((x, n) => console.log('  '.repeat(n) + format(x)));
 	}
 	toString() {
 		return this.name;

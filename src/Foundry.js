@@ -2,8 +2,8 @@ import {spawn, execSync} from 'node:child_process';
 import {ethers} from 'ethers';
 import {createWriteStream, accessSync, readFileSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
-import {join, dirname, basename} from 'node:path';
-import {error_with} from './utils.js';
+import {join, dirname} from 'node:path';
+import {error_with, is_address, to_address} from './utils.js';
 import toml from 'toml';
 
 const CONFIG_NAME = 'foundry.toml';
@@ -27,11 +27,11 @@ export class Foundry {
 		}
 	}
 	static async launch({
-		port = 8545, 
-		chain, 
-		block_sec = 1, 
-		accounts = 5, 
-		autoclose = true, 
+		port = 8545,
+		chain,
+		block_sec,
+		accounts = 5,
+		autoclose = true,
 		fork, log, base
 	} = {}) {
 		return new Promise((ful, rej) => {
@@ -52,38 +52,49 @@ export class Foundry {
 			}
 			//proc.stdin.close();
 			proc.stderr.once('data', fail);
-			proc.stdout.once('data', buf => {
+			proc.stdout.once('data', async buf => {
 				let init = buf.toString();
-				let mnemonic, host;
+				let mnemonic, derivation, host;
 				for (let x of init.split('\n')) {
 					let match;
 					if (match = x.match(/^Mnemonic:(.*)$/)) {
+						// Mnemonic: test test test test test test test test test test test junk
 						mnemonic = match[1].trim();
+					} else if (match = x.match(/^Derivation path:(.*)$/)) {
+						// Derivation path:   m/44'/60'/0'/0/
+						derivation = match[1].trim();
 					} else if (match = x.match(/^Listening on (.*)$/)) {
 						host = match[1].trim();
-					}
+					} 
  				}
-				if (!mnemonic || !host) {
+				if (!mnemonic || !host || !derivation) {
 					proc.kill();
-					rej(error_with('init', {mnemonic, host, args, init}));
+					rej(error_with('init', {mnemonic, derivation, host, args, init}));
 				}
 				if (autoclose) {
 					process.on('exit', () => proc.kill());
 				}
-				if (log === true) log = console.log;
-				if (log instanceof Function) {
+				if (log === true) {
+					console.log(init);
+					proc.stdout.pipe(process.stdout);
+				} else if (log instanceof Function) { // pass string
 					log(init);
 					proc.stdout.on('data', buf => log(buf.toString()));
-				} else if (log) {
+				} else if (log) { // assume file
 					let out = createWriteStream(log);
 					out.write(init);
 					proc.stdout.pipe(out);
 				}
 				let endpoint = `http://${host}`;
-				let provider = new ethers.JsonRpcProvider(endpoint, chain, {staticNetwork: true, pollingInterval: (block_sec * 1000) >> 1});
+				let provider = new ethers.JsonRpcProvider(endpoint, chain, {staticNetwork: true, pollingInterval: 50});
+				if (!chain) {
+					chain = parseInt(await provider.send('eth_chainId')); // determine chain id
+				}
 				let wallets = Array.from({length: accounts}, (_, i) => {
-					let wallet = ethers.HDNodeWallet.fromPhrase(mnemonic, '', `m/44'/60'/0'/0/${i}`).connect(provider);
+					let wallet = ethers.HDNodeWallet.fromPhrase(mnemonic, '', derivation + i).connect(provider);
 					wallet.name = `dev#${i}`;
+					//wallet.nonce = 0;
+					//wallet.getNonce = function() { return this.nonce++; }
 					return wallet;
 				});
 				proc.stdout.removeListener('data', fail);
@@ -96,56 +107,88 @@ export class Foundry {
 		this.provider = provider;
 		this.wallets = wallets;
 		this.info = info;
-		this.deployed = new Map();
+		this.deployed = new Map(wallets.map(x => [x.address, x]));
 	}
 	shutdown() {
 		this.proc.kill();
 		this.provider.destroy();
 	}
-	wallet(x, optional) {
+	// find a signer from: index | address | self
+	wallet(x) {
 		let {wallets: v} = this;
 		if (Number.isInteger(x)) {
 			if (x >= 0 && x < v.length) return v[x];
-		} else if (typeof x === 'string') {
+		} else if (is_address(x)) {
 			let wallet = v.find(y => y.address === x);
 			if (wallet) return wallet;
 		} else if (v.includes(x)) {
 			return x;
 		} 
-		if (!optional) {
-			throw error_with('expected wallet', {wallet: x});
-		}
+		throw error_with('expected wallet', {wallet: x});
 	}
-	resolve(path) {
-		let {info: {config: {src, remappings = []}}} = this;
-		for (let line of remappings) {
-			let pos = line.indexOf('=');
-			if (path.startsWith(line.slice(0, pos))) {
-				return line.slice(pos +1) + path.slice(pos);
+	// get a name for a contract or wallet
+	name(x) {
+		let a = to_address(x);
+		if (a) {
+			let deploy = this.deployed.get(a);
+			if (deploy) return deploy.name;
+		}
+		return x;
+	}
+	async confirm(p, extra = {}) {
+		let tx = await p;
+		let receipt = await tx.wait();
+		let from = this.wallet(receipt.from);
+		let contract = this.deployed.get(receipt.to);
+		// TODO: this could be sending to a wallet
+		let desc = contract.interface.parseTransaction(tx);
+		let args = {
+			gas: receipt.gasUsed,
+			...desc.args.toObject(),
+			...extra
+		};
+		// replace any known address with it's name
+		for (let [k, v] of Object.entries(args)) {
+			if (is_address(v)) {
+				args[k] = this.name(v);
 			}
 		}
-		return `${src}/${path}`;
+		console.log(`${from.name} ${contract.name}.${desc.name}()`, args);
+		return receipt;
 	}
-	async deploy({wallet = 0, file, name, contract: impl, args}, proto = {}) {
+	// resolve(path) {
+	// 	let {info: {config: {src, remappings = []}}} = this;
+	// 	for (let line of remappings) {
+	// 		let pos = line.indexOf('=');
+	// 		if (path.startsWith(line.slice(0, pos))) {
+	// 			return line.slice(pos +1) + path.slice(pos);
+	// 		}
+	// 	}
+	// 	return `${src}/${path}`;
+	// }
+	async deploy({wallet = 0, name, contract: impl, args}, proto = {}) {
 		wallet = this.wallet(wallet);
-		if (file) {
-		} else {
-			if (!name) throw Error('expected name or file');
-			file = `${name}.sol`;
-		}
-		if (!impl) impl = basename(file).replace(/\.sol$/, '');
-		file = this.resolve(file);
-		let cmd = ['forge create', '--rpc-url', this.info.endpoint, '--private-key', wallet.privateKey, `${file}:${impl}`];
+		if (!impl) impl = name; //basename(file).replace(/\.sol$/, '');
+		const {base, endpoint, config: {src, out}} = this.info;
+		let code_path = join(src, `${name}.sol`);
+		let artifact_path = join(out, `${name}.sol`, `${impl}.json`);
+		let cmd = ['forge create', '--rpc-url', endpoint, '--private-key', wallet.privateKey, `${code_path}:${impl}`];
 		if (args) cmd.push('--constructor-args', ...args);
 		let output = execSync(cmd.join(' '), {encoding: 'utf8'});
 		let address = output.match(/Deployed to: (0x[0-9a-f]{40}\b)/mi)[1];
-		let tx = output.match(/Transaction hash: (0x[0-9a-f]{64}\b)/mi)[1];
-		let {abi} = JSON.parse(await readFile(join(this.info.base, `out/${basename(file)}/${impl}.json`)));
+		let hash = output.match(/Transaction hash: (0x[0-9a-f]{64}\b)/mi)[1];
+		let {abi} = JSON.parse(await readFile(join(base, artifact_path)));
 		let contract = new ethers.Contract(address, abi, wallet);
 		this.deployed.set(address, contract);
-		let receipt = await wallet.provider.getTransactionReceipt(tx);
-		Object.assign(contract, proto, {receipt, file, filename: impl});
-		console.log(`${wallet.name} Deployed: ${impl} @ ${address}`, receipt.gasUsed);
+		//let tx = await wallet.provider.getTransaction(hash);
+		let receipt = await wallet.provider.getTransactionReceipt(hash);
+		Object.assign(contract, proto, {
+			receipt, 
+			file: join(base, code_path), 
+			name: impl
+		});
+		console.log(`${wallet.name} Deployed: ${impl} @ ${address}`, {gas: receipt.gasUsed});
+		//wallet.nonce = tx.nonce + 1; // this didn't go through normal channels
 		return contract;
 	}
 }

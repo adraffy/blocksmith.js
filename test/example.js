@@ -1,10 +1,11 @@
-import {before, test, after} from 'node:test';
+import {test, before, after} from 'node:test';
 import {Foundry} from '../src/index.js';
 import assert from 'node:assert/strict';
 
 let foundry;
 before(async () => {
 	foundry = await Foundry.launch({fork: 'https://cloudflare-eth.com', log: true});
+	console.log(foundry.info);
 });
 after(() => foundry.shutdown());
 

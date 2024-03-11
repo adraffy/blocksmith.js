@@ -40,8 +40,19 @@ export class Resolver {
 		this.contract = contract;
 		this.info = info;
 	}
-	async fetch(records, {multi = true, tor} = {}) {
-		const options = {enableCcipRead: true};
+	get address() { 
+		return this.contract.target; 
+	}
+	async text(key, a)   { return this.record({type: 'text', arg: key}, a); }
+	async addr(type, a)  { return this.record({type: 'addr', arg: type}, a); }
+	async contenthash(a) { return this.record({type: 'contenthash'}, a); }
+	async record(record, a) {
+		let [[{res, err}]] = await this.records([record], a);
+		if (err) throw err;
+		return res;
+	}
+	async records(records, {multi = true, ccip = true, tor} = {}) {
+		const options = {enableCcipRead: ccip};
 		const {node, info: {wild}, contract} = this;
 		const {interface: abi} = contract;
 		let dnsname = ethers.dnsEncode(node.name, 255);
@@ -49,7 +60,7 @@ export class Resolver {
 			let encoded = records.map(rec => {
 				let frag = abi.getFunction(record_type(rec));
 				let params = [node.namehash];
-				if (rec.arg) params.push(rec.arg);
+				if ('arg' in rec) params.push(rec.arg);
 				return abi.encodeFunctionData(frag, params);
 			});
 			let frag = abi.getFunction('multicall');
@@ -89,21 +100,35 @@ export class Resolver {
 			}
 		}))];
 	}
-	profile() {
-		// TODO: fix me
-		return this.fetch([
-			{type: 'addr', arg: 60},
+	async profile(a) {
+		let [v, multi] = await this.records([
 			{type: 'text', arg: 'name'},
 			{type: 'text', arg: 'avatar'},
+			{type: 'text', arg: 'description'},
+			{type: 'text', arg: 'url'},
+			{type: 'addr', arg: 60},
+			{type: 'addr', arg: 0},
 			{type: 'contenthash'},
-		]);
+		], a);
+		let obj = Object.fromEntries(v.map(({rec, res, err}) => [record_key(rec), err ?? res]));
+		if (multi) obj.multicalled = true;
+		return obj;
 	}
 }
 
 function record_type(rec) {
 	let {type, arg} = rec;
-	if (type === 'addr')  type = arg ? 'addr(bytes32,uint256)' : 'addr(bytes32)';
+	if (type === 'addr')  type = Number.isInteger(arg) ? 'addr(bytes32,uint256)' : 'addr(bytes32)';
 	return type;
+}
+
+function record_key(rec) {
+	let {type, arg} = rec;
+	switch (type) {
+		case 'addr': return `addr${arg ?? 60}`;
+		case 'text': return arg;
+		default: return type;
+	}
 }
 
 function tor_prefix(call, prefix) {
