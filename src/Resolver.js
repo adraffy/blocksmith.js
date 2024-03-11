@@ -5,7 +5,7 @@ const IFACE_TOR = '0x73302a25';
 
 export class Resolver {
 	static async dump(ens, node) {
-		let nodes = node.nodes();
+		let nodes = node.flat();
 		let owners = await Promise.all(nodes.map(x => ens.owner(x.namehash)));
 		let resolvers = await Promise.all(nodes.map(x => ens.resolver(x.namehash)));
 		let width = String(nodes.length).length;

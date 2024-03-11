@@ -1,11 +1,13 @@
 {
 	"name": "@adraffy/blocksmith",
-	"version": "0.0.3",
+	"version": "0.0.4",
 	"description": "Minimal Ethereum Testing Framework for Foundry + ethers",
 	"type": "module",
-	"main": "./dist/index.cjs",
-	"module": "./dist/index.mjs",
 	"types": "./dist/index.d.ts",
+	"exports": {
+		"import": "./dist/index.mjs",
+		"require": "./dist/index.cjs"
+	},
 	"files": [
 		"./dist"
 	],

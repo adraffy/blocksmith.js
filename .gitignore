@@ -3,6 +3,7 @@ junk/
 # npm
 node_modules/
 npm-test/
+*.tgz
 
 # forge
 out/
