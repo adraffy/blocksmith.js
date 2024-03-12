@@ -30,6 +30,14 @@ function to_address(x) {
 
 const CONFIG_NAME = 'foundry.toml';
 
+function ansi(c, s) {
+	return `\u001b[${c}m${s}\u001b[0m`;
+}
+
+const TAG_DEPLOY = ansi('35', 'DEPLOY');
+const TAG_TX = ansi('33', 'TX');
+const TAG_LOG = ansi('36', 'LOG');
+
 class Foundry {
 	static profile() {
 		return process.env.FOUNDRY_PROFILE ?? 'default';
@@ -114,7 +122,7 @@ class Foundry {
 				}
 				let wallets = Array.from({length: accounts}, (_, i) => {
 					let wallet = ethers.ethers.HDNodeWallet.fromPhrase(mnemonic, '', derivation + i).connect(provider);
-					wallet.name = `dev#${i}`;
+					wallet.__name = `dev#${i}`;
 					//wallet.nonce = 0;
 					//wallet.getNonce = function() { return this.nonce++; }
 					return wallet;
@@ -153,7 +161,7 @@ class Foundry {
 		let a = to_address(x);
 		if (a) {
 			let deploy = this.deployed.get(a);
-			if (deploy) return deploy.name;
+			if (deploy) return deploy.__name;
 		}
 		return x;
 	}
@@ -175,7 +183,13 @@ class Foundry {
 				args[k] = this.desc(v);
 			}
 		}
-		console.log(`${from.name} ${contract.name}.${desc.name}()`, args);
+		console.log(TAG_TX, `${from.__name} >> ${contract.__name}.${desc.signature}()`, args);
+		for (let x of receipt.logs) {
+			let log = contract.interface.parseLog(x);
+			if (log) {
+				console.log(TAG_LOG, log.signature, log.args.toObject());
+			}
+		}
 		return receipt;
 	}
 	// resolve(path) {
@@ -206,12 +220,12 @@ class Foundry {
 		let code = ethers.ethers.getBytes(await wallet.provider.getCode(address));
 		let receipt = await wallet.provider.getTransactionReceipt(hash);
 		Object.assign(contract, proto, {
-			receipt, 
-			name: impl,
-			file: node_path.join(base, code_path), 
-			code,
+			__tx: receipt, 
+			__name: impl,
+			__file: node_path.join(base, code_path), 
+			__code: code,
 		});
-		console.log(`${wallet.name} Deployed: ${impl} @ ${address}`, {gas: receipt.gasUsed, size: code.length});
+		console.log(TAG_DEPLOY, `${wallet.__name} >> ${code_path}:${impl}`, {address, gas: receipt.gasUsed, size: code.length});
 		//wallet.nonce = tx.nonce + 1; // this didn't go through normal channels
 		return contract;
 	}
@@ -345,24 +359,25 @@ class Resolver {
 		if (err) throw err;
 		return res;
 	}
-	async records(recs, {multi = true, ccip = true, tor} = {}) {
+	async records(recs, {multi = true, ccip = true, tor: tor_prefix} = {}) {
 		const options = {enableCcipRead: ccip};
-		const {node, info: {wild}, contract} = this;
+		const {node, info: {wild, tor}, contract} = this;
 		const {interface: abi} = contract;
 		let dnsname = ethers.ethers.dnsEncode(node.name, 255);
-		if (multi && recs.length > 1 && wild && this.info.tor) {
+		if (multi && recs.length > 1 && wild && tor) {
 			let encoded = recs.map(rec => {
-				let frag = abi.getFunction(record_type(rec));
+				let frag = abi.getFunction(type_from_record(rec));
 				let params = [node.namehash];
 				if ('arg' in rec) params.push(rec.arg);
 				return abi.encodeFunctionData(frag, params);
 			});
+			// TODO: add external multicall
 			let frag = abi.getFunction('multicall');
-			let call = tor_prefix(abi.encodeFunctionData(frag, [encoded]), tor);	
+			let call = add_tor_prefix(tor_prefix, abi.encodeFunctionData(frag, [encoded]));	
 			let data = await contract.resolve(dnsname, call, options);
 			let [answers] = abi.decodeFunctionResult(frag, data);
 			return [recs.map((rec, i) => {
-				let frag = abi.getFunction(record_type(rec));
+				let frag = abi.getFunction(type_from_record(rec));
 				let answer = answers[i];
 				try {
 					let res = abi.decodeFunctionResult(frag, answer);
@@ -377,11 +392,12 @@ class Resolver {
 			let params = [node.namehash];
 			if (rec.arg) params.push(rec.arg);
 			try {
-				let type = record_type(rec);
+				let type = type_from_record(rec);
 				let res;
 				if (wild) {
 					let frag = abi.getFunction(type);
-					let call = tor_prefix(abi.encodeFunctionData(frag, params), tor);
+					let call = abi.encodeFunctionData(frag, params);
+					if (tor) call = add_tor_prefix(tor_prefix, call);
 					let answer = await contract.resolve(dnsname, call, options);
 					res = abi.decodeFunctionResult(frag, answer);
 					if (res.length === 1) res = res[0];
@@ -404,19 +420,19 @@ class Resolver {
 			{type: 'addr', arg: 0},
 			{type: 'contenthash'},
 		], a);
-		let obj = Object.fromEntries(v.map(({rec, res, err}) => [record_key(rec), err ?? res]));
+		let obj = Object.fromEntries(v.map(({rec, res, err}) => [key_from_record(rec), err ?? res]));
 		if (multi) obj.multicalled = true;
 		return obj;
 	}
 }
 
-function record_type(rec) {
+function type_from_record(rec) {
 	let {type, arg} = rec;
 	if (type === 'addr')  type = Number.isInteger(arg) ? 'addr(bytes32,uint256)' : 'addr(bytes32)';
 	return type;
 }
 
-function record_key(rec) {
+function key_from_record(rec) {
 	let {type, arg} = rec;
 	switch (type) {
 		case 'addr': return `addr${arg ?? 60}`;
@@ -425,7 +441,7 @@ function record_key(rec) {
 	}
 }
 
-function tor_prefix(call, prefix) {
+function add_tor_prefix(prefix, call) {
 	switch (prefix) {
 		case 'off': return '0x000000FF' + call.slice(2);
 		case 'on':  return '0xFFFFFF00' + call.slice(2);
