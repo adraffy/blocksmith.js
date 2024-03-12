@@ -189,7 +189,7 @@ export class Foundry {
 			__file: join(base, code_path), 
 			__code: code,
 		});
-		console.log(`${wallet.name} Deployed: ${impl} @ ${address}`, {gas: receipt.gasUsed, size: code.length});
+		console.log(`${wallet.__name} Deployed: ${impl} @ ${address}`, {gas: receipt.gasUsed, size: code.length});
 		//wallet.nonce = tx.nonce + 1; // this didn't go through normal channels
 		return contract;
 	}
