@@ -92,7 +92,7 @@ export class Foundry {
 				}
 				let wallets = Array.from({length: accounts}, (_, i) => {
 					let wallet = ethers.HDNodeWallet.fromPhrase(mnemonic, '', derivation + i).connect(provider);
-					wallet.name = `dev#${i}`;
+					wallet.__name = `dev#${i}`;
 					//wallet.nonce = 0;
 					//wallet.getNonce = function() { return this.nonce++; }
 					return wallet;
@@ -131,7 +131,7 @@ export class Foundry {
 		let a = to_address(x);
 		if (a) {
 			let deploy = this.deployed.get(a);
-			if (deploy) return deploy.name;
+			if (deploy) return deploy.__name;
 		}
 		return x;
 	}
@@ -153,7 +153,7 @@ export class Foundry {
 				args[k] = this.desc(v);
 			}
 		}
-		console.log(`${from.name} ${contract.name}.${desc.name}()`, args);
+		console.log(`${from.__name} ${contract.__name}.${desc.name}()`, args);
 		return receipt;
 	}
 	// resolve(path) {
@@ -184,10 +184,10 @@ export class Foundry {
 		let code = ethers.getBytes(await wallet.provider.getCode(address));
 		let receipt = await wallet.provider.getTransactionReceipt(hash);
 		Object.assign(contract, proto, {
-			receipt, 
-			name: impl,
-			file: join(base, code_path), 
-			code,
+			__tx: receipt, 
+			__name: impl,
+			__file: join(base, code_path), 
+			__code: code,
 		});
 		console.log(`${wallet.name} Deployed: ${impl} @ ${address}`, {gas: receipt.gasUsed, size: code.length});
 		//wallet.nonce = tx.nonce + 1; // this didn't go through normal channels
