@@ -8,6 +8,14 @@ import toml from 'toml';
 
 const CONFIG_NAME = 'foundry.toml';
 
+function ansi(c, s) {
+	return `\u001b[${c}m${s}\u001b[0m`;
+}
+
+const TAG_DEPLOY = ansi('35', 'DEPLOY');
+const TAG_TX = ansi('33', 'TX');
+const TAG_LOG = ansi('36', 'LOG');
+
 export class Foundry {
 	static profile() {
 		return process.env.FOUNDRY_PROFILE ?? 'default';
@@ -153,7 +161,13 @@ export class Foundry {
 				args[k] = this.desc(v);
 			}
 		}
-		console.log(`${from.__name} ${contract.__name}.${desc.name}()`, args);
+		console.log(TAG_TX, `${from.__name} >> ${contract.__name}.${desc.signature}()`, args);
+		for (let x of receipt.logs) {
+			let log = contract.interface.parseLog(x);
+			if (log) {
+				console.log(TAG_LOG, log.signature, log.args.toObject());
+			}
+		}
 		return receipt;
 	}
 	// resolve(path) {
@@ -189,7 +203,7 @@ export class Foundry {
 			__file: join(base, code_path), 
 			__code: code,
 		});
-		console.log(`${wallet.__name} Deployed: ${impl} @ ${address}`, {gas: receipt.gasUsed, size: code.length});
+		console.log(TAG_DEPLOY, `${wallet.__name} >> ${code_path}:${impl}`, {address, gas: receipt.gasUsed, size: code.length});
 		//wallet.nonce = tx.nonce + 1; // this didn't go through normal channels
 		return contract;
 	}
