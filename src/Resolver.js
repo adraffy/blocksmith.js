@@ -51,24 +51,25 @@ export class Resolver {
 		if (err) throw err;
 		return res;
 	}
-	async records(recs, {multi = true, ccip = true, tor} = {}) {
+	async records(recs, {multi = true, ccip = true, tor: tor_prefix} = {}) {
 		const options = {enableCcipRead: ccip};
-		const {node, info: {wild}, contract} = this;
+		const {node, info: {wild, tor}, contract} = this;
 		const {interface: abi} = contract;
 		let dnsname = ethers.dnsEncode(node.name, 255);
-		if (multi && recs.length > 1 && wild && this.info.tor) {
+		if (multi && recs.length > 1 && wild && tor) {
 			let encoded = recs.map(rec => {
-				let frag = abi.getFunction(record_type(rec));
+				let frag = abi.getFunction(type_from_record(rec));
 				let params = [node.namehash];
 				if ('arg' in rec) params.push(rec.arg);
 				return abi.encodeFunctionData(frag, params);
 			});
+			// TODO: add external multicall
 			let frag = abi.getFunction('multicall');
-			let call = tor_prefix(abi.encodeFunctionData(frag, [encoded]), tor);	
+			let call = add_tor_prefix(tor_prefix, abi.encodeFunctionData(frag, [encoded]));	
 			let data = await contract.resolve(dnsname, call, options);
 			let [answers] = abi.decodeFunctionResult(frag, data);
 			return [recs.map((rec, i) => {
-				let frag = abi.getFunction(record_type(rec));
+				let frag = abi.getFunction(type_from_record(rec));
 				let answer = answers[i];
 				try {
 					let res = abi.decodeFunctionResult(frag, answer);
@@ -83,11 +84,12 @@ export class Resolver {
 			let params = [node.namehash];
 			if (rec.arg) params.push(rec.arg);
 			try {
-				let type = record_type(rec);
+				let type = type_from_record(rec);
 				let res;
 				if (wild) {
 					let frag = abi.getFunction(type);
-					let call = tor_prefix(abi.encodeFunctionData(frag, params), tor);
+					let call = abi.encodeFunctionData(frag, params);
+					if (tor) call = add_tor_prefix(tor_prefix, call);
 					let answer = await contract.resolve(dnsname, call, options);
 					res = abi.decodeFunctionResult(frag, answer);
 					if (res.length === 1) res = res[0];
@@ -110,19 +112,19 @@ export class Resolver {
 			{type: 'addr', arg: 0},
 			{type: 'contenthash'},
 		], a);
-		let obj = Object.fromEntries(v.map(({rec, res, err}) => [record_key(rec), err ?? res]));
+		let obj = Object.fromEntries(v.map(({rec, res, err}) => [key_from_record(rec), err ?? res]));
 		if (multi) obj.multicalled = true;
 		return obj;
 	}
 }
 
-function record_type(rec) {
+function type_from_record(rec) {
 	let {type, arg} = rec;
 	if (type === 'addr')  type = Number.isInteger(arg) ? 'addr(bytes32,uint256)' : 'addr(bytes32)';
 	return type;
 }
 
-function record_key(rec) {
+function key_from_record(rec) {
 	let {type, arg} = rec;
 	switch (type) {
 		case 'addr': return `addr${arg ?? 60}`;
@@ -131,7 +133,7 @@ function record_key(rec) {
 	}
 }
 
-function tor_prefix(call, prefix) {
+function add_tor_prefix(prefix, call) {
 	switch (prefix) {
 		case 'off': return '0x000000FF' + call.slice(2);
 		case 'on':  return '0xFFFFFF00' + call.slice(2);
