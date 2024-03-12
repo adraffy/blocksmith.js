@@ -1,12 +1,12 @@
 import {HDNodeWallet, TransactionReceipt, TransactionResponse, JsonRpcProvider, Contract} from "ethers";
 import {ChildProcess} from "node:child_process";
 
-type DevWallet = HDNodeWallet & {name: string};
+type DevWallet = HDNodeWallet & {__name: string};
 type DeployedContract = Contract & {
-	receipt: TransactionReceipt;
-	name: string;
-	file: string;
-	code: Uint8Array;
+	__tx: TransactionReceipt;
+	__name: string;
+	__file: string;
+	__code: Uint8Array;
 };
 
 type PathLike = string | URL;
@@ -50,7 +50,7 @@ export class Foundry {
 		wallet?: WalletLike;
 		name?: string;
 		contract?: string;
-		args?: any[];		
+		args?: any[];
 	}, proto?: P): Promise<DeployedContract & P>;
 
 	// send a transaction promise and get a pretty print console log
