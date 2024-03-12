@@ -10,9 +10,10 @@
 
 ### Instructions
 
-1. install [`foundryup`](https://book.getfoundry.sh/getting-started/installation)
+1. [`foundryup`](https://book.getfoundry.sh/getting-started/installation)
 1. `npm i`
-1. `npm run start`
+1. `npm run test`
+1. `npm run start` &rarr; [`example.js`](./test/example.js)
 
 ### Examples
 
