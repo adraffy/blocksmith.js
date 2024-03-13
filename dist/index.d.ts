@@ -3,10 +3,11 @@ import {ChildProcess} from "node:child_process";
 
 type DevWallet = HDNodeWallet & {__name: string};
 type DeployedContract = Contract & {
-	__tx: TransactionReceipt;
 	__name: string;
+	__contract: string;
 	__file: string;
 	__code: Uint8Array;
+	__tx: TransactionReceipt;	
 };
 
 type PathLike = string | URL;
@@ -29,7 +30,7 @@ export class Foundry {
 	readonly proc: ChildProcess;
 	readonly provider: JsonRpcProvider;
 	readonly wallets: DevWallet[];
-	readonly deployed: Map<string, DeployedContract>;
+	readonly deployed: Map<string, DeployedContract | DevWallet>;
 	readonly info: {
 		base: string;
 		mnemonic: string;
@@ -37,10 +38,8 @@ export class Foundry {
 		chain: number;
 		port: number;
 		config: Object;
+		automine: boolean;
 	};
-
-	// get the name of a contract or wallet
-	desc<T>(x: T): string | T;
 
 	// require a wallet
 	wallet(wallet: WalletLike): DevWallet;

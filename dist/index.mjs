@@ -183,19 +183,18 @@ class Foundry {
 		} 
 		throw error_with('expected wallet', {wallet: x});
 	}
-	// get a name for a contract or wallet
-	desc(x) {
+	// find contract or wallet by address
+	find(x) {
 		let a = to_address(x);
 		if (a) {
 			let deploy = this.deployed.get(a);
-			if (deploy) return deploy.__name;
+			if (deploy) return deploy;
 		}
-		return x;
 	}
 	replace(obj) {
 		let copy = {};
 		for (let [k, v] of Object.entries(obj)) {
-			copy[k] = is_address(v) ? this.deployed.get(v) : v;
+			copy[k] = is_address(v) && this.find(v) || v;
 		}
 		return copy;
 	}
@@ -219,11 +218,12 @@ class Foundry {
 			let desc = contract.interface.parseTransaction(tx);
 			Object.assign(args, desc.args.toObject());
 			action = `${contract.__name}.${desc.signature}`;
+			console.log(TAG_TX, from, action, this.replace(args));
 			this.print_logs(contract.interface, receipt);
 		} else {
-			action = this.desc(receipt.to);
+			console.log(TAG_TX, from, action, this.replace(args));
+			action = this.find(receipt.to) || receipt.to;
 		}
-		console.log(TAG_TX, from, action, this.replace(args));
 		return receipt;
 	}
 	print_logs(abi, receipt) {
