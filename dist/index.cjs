@@ -253,9 +253,9 @@ class Foundry {
 		let code_path = node_path.join(src, `${name}.sol`);
 		let artifact_path = node_path.join(out, `${name}.sol`, `${impl}.json`);
 		let {abi, bytecode} = JSON.parse(await promises.readFile(node_path.join(base, artifact_path)));
-		abi = new ethers.ethers.Interface(abi);
+		abi = new ethers.ethers.Interface(abi);		
 		let factory = new ethers.ethers.ContractFactory(abi, bytecode, wallet);
-		let unsigned = await factory.getDeployTransaction(args);
+		let unsigned = await factory.getDeployTransaction(...args);
 		let tx = await wallet.sendTransaction(unsigned);
 		let receipt = await this.wait(tx);
 		let {contractAddress: address} = receipt;
@@ -273,7 +273,7 @@ class Foundry {
 				return ansi(32, this.__name);
 			}
 		};
-		Object.assign(contract, info);
+		Object.assign(contract, proto, info);
 		this.deployed.set(address, contract); // keep track of it
 		console.log(TAG_DEPLOY, wallet, `${code_path}`, contract, {address, gas: receipt.gasUsed, size: code.length});
 		this.print_logs(abi, receipt);
