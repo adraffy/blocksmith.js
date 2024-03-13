@@ -8,17 +8,21 @@
 * compatible with [node:test](https://nodejs.org/api/test.html)
 * designed for complex [EIP-3668](https://eips.ethereum.org/EIPS/eip-3668) contracts
 
+![Screenshot](./test/deploy.png)
+
 ### Instructions
 
 1. [`foundryup`](https://book.getfoundry.sh/getting-started/installation)
 1. `npm i`
-1. `npm run test`
 1. `npm run start` &rarr; [`example.js`](./test/example.js)
 
 ### Examples
 
-* [`example.js`](./test/example.js) + [`Example.sol`](./test/Example.sol)
-* [Complex Example: TOR ](https://github.com/resolverworks/TheOffchainResolver.sol/blob/main/test/test.js)
+* [`node test/example.js`](./test/example.js) + [`Example.sol`](./test/Example.sol)
+* [`node test/deploy.js`](./test/deploy.js) + [`Deploy.sol`](./test/Deploy.sol)
+* [`node test/resolver.js`](./test/resolver.js)
+* [resolverworks/**TheOffchainResolver.sol**](https://github.com/resolverworks/TheOffchainResolver.sol/blob/main/test/test.js)
+* [resolverworks/**XCTENS.sol**](https://github.com/resolverworks/XCTENS.sol/blob/main/test/test.js)
 
 ### Additional Tooling
 
