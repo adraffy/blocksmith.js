@@ -1,17 +1,37 @@
-import {HDNodeWallet, TransactionReceipt, TransactionResponse, JsonRpcProvider, Contract} from "ethers";
+import {
+	WebSocketProvider, BaseWallet, 
+	Contract, InterfaceAbi,
+	TransactionReceipt, TransactionResponse
+} from "ethers";
 import {ChildProcess} from "node:child_process";
 
-type DevWallet = HDNodeWallet & {__name: string};
+type DevWallet = BaseWallet & {__name: string};
 type DeployedContract = Contract & {
-	__name: string;
-	__contract: string;
-	__file: string;
-	__code: Uint8Array;
-	__tx: TransactionReceipt;	
+	__receipt: TransactionReceipt;
+	__artifact: Artifact;
 };
 
 type PathLike = string | URL;
-type WalletLike = number | string | DevWallet;
+type WalletLike = string | DevWallet;
+type BaseArtifact = {
+	abi: InterfaceAbi;
+	bytecode: string;
+	contract: string;
+	origin: string;
+}
+type FileArtifact = BaseArtifact & {file: string};
+type InlineArtifact = BaseArtifact & {sol: string};
+type Artifact = FileArtifact | InlineArtifact | BaseArtifact;
+type ArtifactLike = {
+	sol?: string;
+	file?: string;
+	abi?: InterfaceAbi;
+	bytecode?: string,
+	contract?: string;
+};
+
+export function solc(strings: string[]): Artifact;
+export function compile(sol: string, contract?: string): Artifact;
 
 export class Foundry {
 	static base(dir?: PathLike): string;
@@ -19,8 +39,7 @@ export class Foundry {
 	static launch(options: {
 		port?: number;
 		chain?: number;
-		block_sec?: number;
-		accounts?: number; // default: 5
+		accounts?: string[],
 		autoclose?: boolean; // default: true
 		log?: boolean | PathLike | ((chunk: string) => any);
 		fork?: PathLike;
@@ -28,32 +47,35 @@ export class Foundry {
 	}): Promise<Foundry>;
 
 	readonly proc: ChildProcess;
-	readonly provider: JsonRpcProvider;
-	readonly wallets: DevWallet[];
-	readonly deployed: Map<string, DeployedContract | DevWallet>;
+	readonly provider: WebSocketProvider;
+	readonly wallets: {[name: string]: DevWallet};
+	readonly accounts: Map<string, DeployedContract | DevWallet>;
 	readonly info: {
-		base: string;
-		mnemonic: string;
 		endpoint: string;
 		chain: number;
 		port: number;
-		config: Object;
 		automine: boolean;
+	};
+	readonly built?: {
+		config: Object;
+		base: string;
+		profile: string;
 	};
 
 	// require a wallet
-	wallet(wallet: WalletLike): DevWallet;
+	requireWallet(wallet: WalletLike, backup?: WalletLike): DevWallet;
+	ensureWallet(wallet: WalletLike): Promise<DevWallet>;
+
+	resolveArtifact(artifact: ArtifactLike): Promise<Artifact>;
 
 	// compile and deploy a contract, returns Contract with ABI
 	deploy<P>(options: {
-		wallet?: WalletLike;
-		name?: string;
-		contract?: string;
+		from?: WalletLike;
 		args?: any[];
-	}, proto?: P): Promise<DeployedContract & P>;
+	} & ArtifactLike, proto?: P): Promise<DeployedContract & P>;
 
 	// send a transaction promise and get a pretty print console log
-	confirm(call: Promise<TransactionResponse>, info?: Object): Promise<TransactionReceipt>;
+	confirm(call: Promise<TransactionResponse>, info?: {[key: string]: any}): Promise<TransactionReceipt>;
 
 	// kill anvil
 	shutdown(): void;
