@@ -47,19 +47,32 @@ const TAG_LOG    = ansi('36', 'LOG');
 
 const DEFAULT_WALLET = 'admin';
 
-const _OWNER = Symbol('foundry');
-const _NAME  = Symbol('foundry.name');
+const _OWNER = Symbol('blocksmith');
+const _NAME  = Symbol('blocksmith.name');
+function toString() {
+	return this[_NAME];
+}
 
 function take_hash(s) {
 	return s.slice(2, 6);
 }
 
-function solc(v) { return compile(v.join('\n')); } // experimental
-function compile(sol, contract) {
+function compile(sol, {contract, smart = true} = {}) {
+	if (Array.isArray(sol)) {
+		sol = sol.join('\n');
+	}
 	if (!contract) {
 		let match = sol.match(/contract\s(.*)\b/);
 		if (!match) throw error_with('expected contract name', {sol});
 		contract = match[1];
+	}
+	if (smart) {
+		if (!/^\s*pragma\s+solidity/m.test(sol)) {
+			sol = `pragma solidity >=0.0.0;\n${sol}`;
+		}
+		if (!/^\s*\/\/\s*SPDX-License-Identifier:/m.test(sol)) {
+			sol = `// SPDX-License-Identifier: UNLICENSED\n${sol}`;
+		}
 	}
 	let hash = take_hash(ethers.ethers.id(sol));
 	let root = node_path.join(TMP_DIR, hash);
@@ -104,24 +117,34 @@ class Foundry {
 		port = 0,
 		wallets = [DEFAULT_WALLET],
 		chain,
-		block_sec,
+		infiniteCallGas,
+		gasLimit,
+		blockSec,
 		autoclose = true,
-		fork, log, base
+		fork, log, base, ...unknown
 	} = {}) {
+		if (Object.keys(unknown).length) {
+			throw error_with('unknown options', unknown);
+		}
 		return new Promise((ful, rej) => {
 			let args = [
 				'--port', port,
-				'--accounts', 0 // create accounts on demand
+				'--accounts', 0, // create accounts on demand
 			];
 			if (chain) args.push('--chain-id', chain);
-			if (block_sec) {
-				args.push('--block-time', block_sec);
+			if (blockSec) args.push('--block-time', blockSec);
+			if (infiniteCallGas) {
+				//args.push('--disable-block-gas-limit');
+				// https://github.com/foundry-rs/foundry/pull/6955
+				// currently bugged
+				gasLimit = '99999999999999999999999';
 			}
+			if (gasLimit) args.push('--gas-limit', gasLimit);
 			if (fork) args.push('--fork-url', fork);
 			let proc = node_child_process.spawn('anvil', args);
 			function fail(data) {
 				proc.kill();
-				rej(error_with('launch', {args, data}));
+				rej(error_with('launch', {args, stderr: data.toString()}));
 			}
 			proc.stdin.end();
 			proc.stderr.once('data', fail);
@@ -263,6 +286,7 @@ class Foundry {
 			await this.provider.send('anvil_setBalance', [wallet.address, ethers.ethers.toBeHex(10000n * BigInt(1e18))]);
 			wallet[_NAME] = x;
 			wallet[_OWNER] = this;
+			wallet.toString = toString;
 			this.wallets[x] = wallet;
 			this.accounts.set(wallet.address, wallet);
 		}
@@ -273,7 +297,15 @@ class Foundry {
 			if (typeof x === 'object') {
 				if (_OWNER in x) {
 					return {
-						[node_util.inspect.custom]() { return ansi(32, x[_NAME]); }
+						[node_util.inspect.custom]() { 
+							return ansi(32, x[_NAME]); 
+						}
+					};
+				} else if (x instanceof ethers.ethers.Indexed) {
+					return {
+						[node_util.inspect.custom]() { 
+							return ansi(36, `'${x.hash}'`);
+						}
 					};
 				} else if (Array.isArray(x)) {
 					return x.map(y => this.pretty(y));
@@ -315,7 +347,7 @@ class Foundry {
 	async resolveArtifact(args) {
 		let {sol, bytecode, abi, file, contract} = args;
 		if (sol) {
-			return compile(sol, contract);
+			return compile(sol, {contract});
 		} else if (bytecode) {
 			if (!contract) contract = 'Unnamed';
 			abi = ethers.ethers.Interface.from(abi);
@@ -326,16 +358,16 @@ class Foundry {
 		throw error_with('unknown artifact', args);
 	}
 	async fileArtifact(file, contract) {
-		file = file.replace(/\.sol$/, '');
-		if (!contract) contract = node_path.basename(file);
-		file += '.sol';
-		const {base, config: {src, out}} = await this.ensureBuilt();
+		file = file.replace(/\.sol$/, ''); // remove optional extension
+		if (!contract) contract = node_path.basename(file); // derive contract name from file name
+		file += '.sol'; // add extension
+		const {base, config: {src, out}} = await this.ensureBuilt(); // compile project
 		let artifact_file = node_path.join(out, file, `${contract}.json`);
 		let {abi, bytecode: {object: bytecode}} = JSON.parse(await promises.readFile(node_path.join(base, artifact_file)));
 		abi = ethers.ethers.Interface.from(abi);
 		return {abi, bytecode, contract,
-			origin: file, 
-			file: node_path.join(base, src, file)
+			origin: node_path.join(src, file), // relative
+			file: node_path.join(base, src, file) // absolute
 		};
 	}
 	async deploy({from, args = [], ...artifactLike}, proto = {}) {
@@ -351,7 +383,7 @@ class Foundry {
 		let c = new ethers.ethers.Contract(address, abi, w);
 		c[_NAME] = `${contract}<${take_hash(address)}>`; // so we can deploy the same contract multiple times
 		c[_OWNER] = this;
-		c.toString = function() { return this[_NAME]; };
+		c.toString = toString;
 		c.__artifact = artifact;
 		c.__receipt = tx;
 		Object.assign(c, proto);
@@ -587,5 +619,4 @@ exports.Resolver = Resolver;
 exports.compile = compile;
 exports.error_with = error_with;
 exports.is_address = is_address;
-exports.solc = solc;
 exports.to_address = to_address;

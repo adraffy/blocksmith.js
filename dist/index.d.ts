@@ -30,8 +30,7 @@ type ArtifactLike = {
 	contract?: string;
 };
 
-export function solc(strings: string[]): Artifact;
-export function compile(sol: string, contract?: string): Artifact;
+export function compile(sol: string | string[], options: {contract?: string}): Artifact;
 
 export class Foundry {
 	static base(dir?: PathLike): string;
@@ -39,6 +38,8 @@ export class Foundry {
 	static launch(options: {
 		port?: number;
 		chain?: number;
+		gasLimit?: number;
+		blockSec?: number;
 		accounts?: string[],
 		autoclose?: boolean; // default: true
 		log?: boolean | PathLike | ((chunk: string) => any);

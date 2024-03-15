@@ -22,10 +22,8 @@
 	"homepage": "https://github.com/adraffy/blocksmith.js#readme",
 	"author": "raffy.eth",
 	"scripts": {
-		"start": "node test/example.js",
+		"start": "node test/deploy/test.js",
 		"test": "node test/all.js",
-		"test-deploy": "node test/deploy.js",
-		"test-resolver": "node test/resolver.js",
 		"build": "rollup -c"
 	},
 	"dependencies": {

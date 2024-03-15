@@ -1,7 +1,6 @@
-import {Foundry, solc} from '../src/index.js';
-import {test, before, after} from 'node:test';
+import {Foundry, compile as solc} from '@adraffy/blocksmith';
+import {test, after} from 'node:test';
 import assert from 'node:assert/strict';
-
 
 test('deploy file', async T => {
 	let foundry = await Foundry.launch();
@@ -15,8 +14,6 @@ test('deploy inline', async () => {
 	let foundry = await Foundry.launch();
 	after(() => foundry.shutdown());
 	let contract = await foundry.deploy({sol: `
-		// SPDX-License-Identifier: MIT
-		pragma solidity ^0.8.23;
 		contract Chonk {
 			function f() external pure returns (string memory) {
 				return 'chonk';
@@ -32,8 +29,6 @@ test('deploy inline', async () => {
 
 test('solc', async () => {
 	let {bytecode} = solc`
-		// SPDX-License-Identifier: MIT
-		pragma solidity ^0.8.23;
 		contract Chonk {
 			function f() external pure returns (string memory) {
 				return 'chonk';
