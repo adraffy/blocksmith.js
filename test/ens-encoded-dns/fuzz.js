@@ -1,4 +1,4 @@
-import {Foundry} from '@adraffy/blocksmith';
+import {Foundry} from '../../src/index.js';
 import {test, after} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';

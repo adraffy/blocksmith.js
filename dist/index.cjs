@@ -30,7 +30,7 @@ function to_address(x) {
 	if (is_address(x.address)) return x.address;
 }
 
-const TMP_DIR = node_path.join(node_os.tmpdir(), 'blocksmith');
+const TMP_DIR = node_fs.realpathSync(node_path.join(node_os.tmpdir(), 'blocksmith'));
 
 const CONFIG_NAME = 'foundry.toml';
 

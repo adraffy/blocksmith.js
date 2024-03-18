@@ -1,6 +1,6 @@
 import { execSync, spawn } from 'node:child_process';
 import { ethers } from 'ethers';
-import { rmSync, mkdirSync, writeFileSync, accessSync, createWriteStream, readFileSync } from 'node:fs';
+import { realpathSync, rmSync, mkdirSync, writeFileSync, accessSync, createWriteStream, readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -28,7 +28,7 @@ function to_address(x) {
 	if (is_address(x.address)) return x.address;
 }
 
-const TMP_DIR = join(tmpdir(), 'blocksmith');
+const TMP_DIR = realpathSync(join(tmpdir(), 'blocksmith'));
 
 const CONFIG_NAME = 'foundry.toml';
 

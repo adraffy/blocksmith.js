@@ -1,14 +1,14 @@
 import {spawn, execSync} from 'node:child_process';
 import {ethers} from 'ethers';
-import {createWriteStream, accessSync, readFileSync, writeFileSync, mkdirSync, rmSync} from 'node:fs';
+import {createWriteStream, accessSync, realpathSync, readFileSync, writeFileSync, mkdirSync, rmSync} from 'node:fs';
 import {readFile} from 'node:fs/promises';
 import {join, dirname, basename} from 'node:path';
 import {tmpdir} from 'node:os';
-import {error_with, is_address, to_address} from './utils.js';
+import {error_with, is_address} from './utils.js';
 import toml from 'toml';
 import {inspect} from 'node:util';
 
-const TMP_DIR = join(tmpdir(), 'blocksmith');
+const TMP_DIR = realpathSync(join(tmpdir(), 'blocksmith'));
 
 const CONFIG_NAME = 'foundry.toml';
 

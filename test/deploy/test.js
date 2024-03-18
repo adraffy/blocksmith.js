@@ -1,4 +1,4 @@
-import {Foundry, compile as solc} from '@adraffy/blocksmith';
+import {Foundry, compile as solc} from '../../src/index.js';
 import {test, after} from 'node:test';
 import assert from 'node:assert/strict';
 
