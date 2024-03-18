@@ -253,28 +253,26 @@ class Foundry {
 		this.proc.kill();
 		this.provider.destroy();
 	}
-	requireWallet(x, y) {
-		if (x instanceof ethers.Wallet) {
-			if (x[_OWNER] === this) return x;
-			throw error_with('unowned wallet', {wallet: x});
-		} else if (is_address(x)) {
-			let a = this.accounts.get(x);
-			if (a) return a;
-			throw error_with('unknown wallet', {address: x});
-		} else if (typeof x === 'string') {
-			let a = this.wallets[x];
-			if (a) return a;
-			throw error_with('unknown wallet', {name: x});
-		} else if (y) {
-			return this.requireWallet(y);
+	requireWallet(...xs) {
+		for (let x of xs) {
+			if (x instanceof ethers.Wallet) {
+				if (x[_OWNER] === this) return x;
+				throw error_with('unowned wallet', {wallet: x});
+			} else if (is_address(x)) {
+				let a = this.accounts.get(x);
+				if (a) return a;
+				throw error_with('unknown wallet', {address: x});
+			} else if (typeof x === 'string') {
+				let a = this.wallets[x];
+				if (a) return a;
+				throw error_with('unknown wallet', {name: x});
+			}
+			if (x) break;
 		}
 		throw error_with('expected wallet', {wallet: x});
 	}
 	async ensureWallet(x) {
-		if (x instanceof ethers.Wallet) {
-			if (x[_OWNER] === this) return x;
-			throw error_with('unowned wallet', {wallet: x});
-		}
+		if (x instanceof ethers.Wallet) return this.requireWallet(x);
 		if (!x || typeof x !== 'string' || is_address(x)) {
 			throw error_with('expected wallet name', {name: x});
 		}
@@ -296,13 +294,13 @@ class Foundry {
 				if (_OWNER in x) {
 					return {
 						[inspect.custom]() { 
-							return ansi(32, x[_NAME]); 
+							return ansi('35', x[_NAME]);
 						}
 					};
 				} else if (x instanceof ethers.Indexed) {
 					return {
 						[inspect.custom]() { 
-							return ansi(36, `'${x.hash}'`);
+							return ansi('36', `'${x.hash}'`);
 						}
 					};
 				} else if (Array.isArray(x)) {
