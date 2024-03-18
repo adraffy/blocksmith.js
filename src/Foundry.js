@@ -19,7 +19,7 @@ function strip_ansi(s) {
 	return s.replaceAll(/[\u001b][^m]+m/g, '').split('\n');
 }
 
-const TAG_DEPLOY = ansi('35', 'DEPLOY');
+const TAG_DEPLOY = ansi('33', 'DEPLOY');
 const TAG_TX     = ansi('33', 'TX');
 const TAG_LOG    = ansi('36', 'LOG');
 

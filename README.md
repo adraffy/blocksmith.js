@@ -5,7 +5,7 @@
 `npm i @adraffy/blocksmith`
 
 * see [**types**](./dist/index.d.ts) / designed for [Foundry](https://github.com/foundry-rs/foundry) + [ethers](https://github.com/ethers-io/ethers.js).
-* compatible with [node:test](https://nodejs.org/api/test.html)
+* compatible with any async test runner, including [node:test](https://nodejs.org/api/test.html)
 * designed for complex [EIP-3668](https://eips.ethereum.org/EIPS/eip-3668) contracts
 
 ![Screenshot](./test/deploy/screenshot.png)

@@ -2,7 +2,7 @@ import {Foundry, compile as solc} from '../../src/index.js';
 import {test, after} from 'node:test';
 import assert from 'node:assert/strict';
 
-test('deploy file', async T => {
+test('deploy file', async () => {
 	let foundry = await Foundry.launch();
 	after(() => foundry.shutdown());
 	let contract = await foundry.deploy({file: 'Deploy'});
@@ -27,7 +27,7 @@ test('deploy inline', async () => {
 	assert.equal(await contract.g(69, 420), 69420n);
 });
 
-test('solc', async () => {
+test('solc tagged template', async () => {
 	let {bytecode} = solc`
 		contract Chonk {
 			function f() external pure returns (string memory) {
