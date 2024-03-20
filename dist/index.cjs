@@ -8,6 +8,7 @@ var node_path = require('node:path');
 var node_os = require('node:os');
 var toml = require('toml');
 var node_util = require('node:util');
+var node_console = require('node:console');
 
 function error_with(message, params, cause) {
 	let error;
@@ -30,6 +31,20 @@ function to_address(x) {
 	if (is_address(x.address)) return x.address;
 }
 
+function on_newline(fn) {
+	let prior = '';
+	return buf => {
+		prior += buf.toString();
+		let v = prior.split('\n');
+		prior = v.pop();
+		v.forEach(fn);
+	};
+}
+
+function is_pathlike(x) {
+	return typeof x === 'string' || x instanceof URL;
+}
+
 const TMP_DIR = node_fs.realpathSync(node_path.join(node_os.tmpdir(), 'blocksmith'));
 
 const CONFIG_NAME = 'foundry.toml';
@@ -41,7 +56,7 @@ function strip_ansi(s) {
 	return s.replaceAll(/[\u001b][^m]+m/g, '').split('\n');
 }
 
-const TAG_DEPLOY = ansi('35', 'DEPLOY');
+const TAG_DEPLOY = ansi('33', 'DEPLOY');
 const TAG_TX     = ansi('33', 'TX');
 const TAG_LOG    = ansi('36', 'LOG');
 
@@ -121,11 +136,18 @@ class Foundry {
 		gasLimit,
 		blockSec,
 		autoclose = true,
-		fork, log, base, ...unknown
+		fork, base,
+		procLog,
+		infoLog = true,
+		...unknown
 	} = {}) {
 		if (Object.keys(unknown).length) {
 			throw error_with('unknown options', unknown);
 		}
+		if (!infoLog) infoLog = undefined;
+		if (!procLog) procLog = undefined;
+		if (infoLog === true) infoLog = console.log.bind(console);
+		if (procLog === true) procLog = console.log.bind(console);
 		return new Promise((ful, rej) => {
 			let args = [
 				'--port', port,
@@ -142,47 +164,42 @@ class Foundry {
 			if (gasLimit) args.push('--gas-limit', gasLimit);
 			if (fork) args.push('--fork-url', fork);
 			let proc = node_child_process.spawn('anvil', args);
-			function fail(data) {
+			proc.stdin.end();
+			const fail = data => {
 				proc.kill();
 				rej(error_with('launch', {args, stderr: data.toString()}));
-			}
-			proc.stdin.end();
+			};
 			proc.stderr.once('data', fail);
-			proc.stdout.once('data', async buf => {
-				proc.stdout.removeListener('data', fail);
-				let init = buf.toString();
-				//let mnemonic, derivation, host;
-				let host;
-				for (let x of init.split('\n')) {
-					let match;
-					// if (match = x.match(/^Mnemonic:(.*)$/)) {
-					// 	// Mnemonic: test test test test test test test test test test test junk
-					// 	mnemonic = match[1].trim();
-					// } else if (match = x.match(/^Derivation path:(.*)$/)) {
-					// 	// Derivation path:   m/44'/60'/0'/0/
-					// 	derivation = match[1].trim();
-					// } else 
-					if (match = x.match(/^Listening on (.*)$/)) {
-						host = match[1].trim();
-					} 
- 				}
-				if (!host) {
-					proc.kill();
-					rej(error_with('init', {args, init}));
-				}
+			let lines = [];
+			const waiter = on_newline(line => {
+				lines.push(line);
+				// 20240319: there's some random situation where anvil doesnt
+				// print a listening endpoint in the first stdout flush
+				let match = line.match(/^Listening on (.*)$/);
+				if (match) init(lines.join('\n'), match[1]);
+				// does this need a timeout?
+			});
+			proc.stdout.on('data', waiter);
+			async function init(bootmsg, host) {
+				proc.stdout.removeListener('data', waiter);
+				proc.stderr.removeListener('data', fail);
 				if (autoclose) {
-					process.on('exit', () => proc.kill());
+					const kill = () => proc.kill();
+					process.on('exit', kill);
+					proc.once('exit', () => process.removeListener('exit', kill));
 				}
-				if (log === true) {
-					console.log(init);
-					proc.stdout.pipe(process.stdout);
-				} else if (log instanceof Function) { // pass string
-					log(init);
-					proc.stdout.on('data', buf => log(buf.toString()));
-				} else if (log) { // assume file
-					let out = node_fs.createWriteStream(log);
-					out.write(init);
+				if (is_pathlike(procLog)) {
+					let out = node_fs.createWriteStream(procLog);
+					out.write(bootmsg + '\n');
 					proc.stdout.pipe(out);
+				} else if (procLog) {
+					// pass string
+					procLog(bootmsg);
+					proc.stdout.on('data', on_newline(procLog));
+				}
+				if (is_pathlike(infoLog)) {
+					let console = new node_console.Console(node_fs.createWriteStream(infoLog));
+					infoLog = console.log.bind(console);
 				}
 				let endpoint = `ws://${host}`;
 				port = parseInt(host.slice(host.lastIndexOf(':') + 1));
@@ -195,39 +212,23 @@ class Foundry {
 					provider.destroy();
 					provider = new ethers.ethers.WebSocketProvider(endpoint, chain, {staticNetwork: true, cacheTimeout: -1});
 				}
-				let self = new this(proc, provider, {endpoint, chain, port, automine});
+				let self = new Foundry(proc, provider, infoLog, {endpoint, chain, port, automine});
 				wallets = await Promise.all(wallets.map(x => self.ensureWallet(x)));
 				if (base) {
 					await self.ensureBuilt(base);
 				}
-				console.log(`Anvil`, self.pretty({chain, endpoint, wallets}));
+				infoLog?.(`Anvil`, self.pretty({chain, endpoint, wallets}));
 				ful(self);
-			});
+			}
 		});
 	}
-	constructor(proc, provider, info) {
+	constructor(proc, provider, infoLog, info) {
 		this.accounts = new Map();
 		this.wallets = {};
 		this.proc = proc;
 		this.provider = provider;
+		this.infoLog = infoLog;
 		this.info = info;
-		
-		
-
-		// provider.resolveName = async function(name) {
-		// 	let wallet = this.named_wallets.get(name);
-		// 	if (wallet) {
-		// 		return wallet.address;
-		// 	}
-		// 	let resolver = await this.getResolver(name);
-		// 	if (resolver) { 
-		// 		return resolver.getAddress(); 
-		// 	}
-		// 	return null;
-		// }
-
-
-
 	}
 	async ensureBuilt(base) {
 		if (this.built) return this.built;
@@ -235,9 +236,7 @@ class Foundry {
 		let config = toml.parse(node_fs.readFileSync(node_path.join(base, CONFIG_NAME), {encoding: 'utf8'})); // throws
 		let profile = Foundry.profile();
 		config = config.profile[profile];
-		if (!config) {
-			throw error_with('unknown profile', {profile});
-		}
+		if (!config) throw error_with('unknown profile', {profile});
 		// TODO fix me
 		try {
 			node_child_process.execSync('forge build', {encoding: 'utf8'}); // throws
@@ -251,9 +250,12 @@ class Foundry {
 		}
 		return this.built = {config, base, profile};
 	}
-	shutdown() {
-		this.proc.kill();
-		this.provider.destroy();
+	async shutdown() {
+		return new Promise(ful => {
+			this.provider.destroy();
+			this.proc.once('exit', ful);
+			this.proc.kill();
+		});
 	}
 	requireWallet(...xs) {
 		for (let x of xs) {
@@ -327,19 +329,19 @@ class Foundry {
 		if (contract instanceof ethers.ethers.BaseContract) {
 			let desc = contract.interface.parseTransaction(tx);
 			Object.assign(args, desc.args.toObject());
-			console.log(TAG_TX, this.pretty(receipt.from), `${contract[_NAME]}.${desc.signature}`, this.pretty(args));
+			this.infoLog?.(TAG_TX, this.pretty(receipt.from), `${contract[_NAME]}.${desc.signature}`, this.pretty(args));
 			this._dump_logs(contract.interface, receipt);
 		} else {
-			console.log(TAG_TX, this.pretty(receipt.from), '>>', this.pretty(receipt.to), this.pretty(args));
+			this.infoLog?.(TAG_TX, this.pretty(receipt.from), '>>', this.pretty(receipt.to), this.pretty(args));
 		}
 		return receipt;
 	}
 	_dump_logs(abi, receipt) {
-		for (let x of receipt.logs) {
+		const {infoLog} = this;
+		if (!infoLog) return;
+ 		for (let x of receipt.logs) {
 			let log = abi.parseLog(x);
-			if (log) {
-				console.log(TAG_LOG, log.signature, this.pretty(log.args.toObject()));
-			}
+			if (log) infoLog(TAG_LOG, log.signature, this.pretty(log.args.toObject()));
 		}
 	}	
 	async resolveArtifact(args) {
@@ -386,7 +388,7 @@ class Foundry {
 		c.__receipt = tx;
 		Object.assign(c, proto);
 		this.accounts.set(address, c); // keep track of it
-		console.log(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), {address, gas: receipt.gasUsed, size: code.length});
+		this.infoLog?.(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), {address, gas: receipt.gasUsed, size: code.length});
 		this._dump_logs(abi, receipt);
 		return c;
 	}

@@ -31,7 +31,7 @@ type ArtifactLike = {
 };
 
 export function compile(sol: string | string[], options: {contract?: string}): Artifact;
-
+type ToConsoleLog = boolean | PathLike | ((line: string) => any);
 export class Foundry {
 	static base(dir?: PathLike): string;
 	static profile(): string;
@@ -42,7 +42,8 @@ export class Foundry {
 		blockSec?: number;
 		accounts?: string[],
 		autoclose?: boolean; // default: true
-		log?: boolean | PathLike | ((chunk: string) => any);
+		infoLog?: ToConsoleLog, // default: off
+		procLog?: ToConsoleLog; // default: console.log()
 		fork?: PathLike;
 		base?: PathLike;
 	}): Promise<Foundry>;
@@ -79,7 +80,7 @@ export class Foundry {
 	confirm(call: Promise<TransactionResponse>, info?: {[key: string]: any}): Promise<TransactionReceipt>;
 
 	// kill anvil
-	shutdown(): void;
+	shutdown(): Promise<void>;
 }
 
 export class Node extends Map {

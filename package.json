@@ -1,6 +1,6 @@
 {
 	"name": "@adraffy/blocksmith",
-	"version": "0.0.10",
+	"version": "0.0.11",
 	"description": "Minimal Ethereum Testing Framework for Foundry + ethers",
 	"type": "module",
 	"types": "./dist/index.d.ts",
@@ -16,14 +16,12 @@
 		"url": "git+https://github.com/adraffy/blocksmith.js.git"
 	},
 	"license": "MIT",
-	"bugs": {
-		"url": "https://github.com/adraffy/blocksmith.js/issues"
-	},
 	"homepage": "https://github.com/adraffy/blocksmith.js#readme",
 	"author": "raffy.eth",
 	"scripts": {
 		"start": "node test/deploy/test.js",
-		"test": "node test/all.js",
+		"test": "node test/test-quick.js",
+		"test-all": "node test/test-all.js",
 		"build": "rollup -c"
 	},
 	"dependencies": {
