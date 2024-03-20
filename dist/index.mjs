@@ -54,9 +54,11 @@ function strip_ansi(s) {
 	return s.replaceAll(/[\u001b][^m]+m/g, '').split('\n');
 }
 
+const TAG_START  = ansi('31', 'LAUNCH');
 const TAG_DEPLOY = ansi('33', 'DEPLOY');
-const TAG_TX     = ansi('33', 'TX');
-const TAG_LOG    = ansi('36', 'LOG');
+const TAG_LOG    = ansi('36', '***LOG');
+const TAG_TX     = ansi('33', '****TX');
+const TAG_STOP   = ansi('31', '**STOP');
 
 const DEFAULT_WALLET = 'admin';
 
@@ -215,7 +217,11 @@ class Foundry {
 				if (base) {
 					await self.ensureBuilt(base);
 				}
-				infoLog?.(`Anvil`, self.pretty({chain, endpoint, wallets}));
+				if (infoLog) {
+					const t = Date.now();
+					infoLog(TAG_START, self.pretty({chain, endpoint, wallets}));
+					proc.once('exit', () => infoLog(TAG_STOP, Date.now() - t));
+				}
 				ful(self);
 			}
 		});
