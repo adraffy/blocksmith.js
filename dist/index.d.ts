@@ -30,7 +30,7 @@ type ArtifactLike = {
 	contract?: string;
 };
 
-export function compile(sol: string | string[], options: {contract?: string}): Artifact;
+export function compile(sol: string | string[], options?: {contract?: string}): Artifact;
 type ToConsoleLog = boolean | PathLike | ((line: string) => any);
 export class Foundry {
 	static base(dir?: PathLike): string;
