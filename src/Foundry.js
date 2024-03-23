@@ -200,7 +200,7 @@ export class Foundry {
 				if (infoLog) {
 					const t = Date.now();
 					infoLog(TAG_START, self.pretty({chain, endpoint, wallets}));
-					proc.once('exit', () => infoLog(TAG_STOP, Date.now() - t))
+					proc.once('exit', () => infoLog(TAG_STOP, Date.now() - t)); // TODO fix me
 				}
 				ful(self);
 			}
