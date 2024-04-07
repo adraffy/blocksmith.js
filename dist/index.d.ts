@@ -38,6 +38,7 @@ export class Foundry {
 	static launch(options: {
 		port?: number;
 		chain?: number;
+		anvil?: string;
 		gasLimit?: number;
 		blockSec?: number;
 		accounts?: string[],
@@ -52,11 +53,13 @@ export class Foundry {
 	readonly provider: WebSocketProvider;
 	readonly wallets: {[name: string]: DevWallet};
 	readonly accounts: Map<string, DeployedContract | DevWallet>;
-	readonly info: {
-		endpoint: string;
-		chain: number;
-		port: number;
-		automine: boolean;
+	readonly endpoint: string;
+	readonly chain: number;
+	readonly port: number;
+	readonly automine: boolean;
+	readonly bin: {
+		anvil: string;
+		forge: string;
 	};
 	readonly built?: {
 		config: Object;

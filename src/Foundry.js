@@ -52,7 +52,7 @@ function take_hash(s) {
 	return s.slice(2, 6);
 }
 
-export function compile(sol, {contract, smart = true} = {}) {
+export function compile(sol, {contract, forge = 'forge', smart = true} = {}) {
 	if (Array.isArray(sol)) {
 		sol = sol.join('\n');
 	}
@@ -76,7 +76,7 @@ export function compile(sol, {contract, smart = true} = {}) {
 	mkdirSync(src, {recursive: true});
 	let file = join(src, `${contract}.sol`);
 	writeFileSync(file, sol);
-	let {errors, contracts} = JSON.parse(execSync(`forge build --format-json --root ${root}`, {encoding: 'utf8'}));
+	let {errors, contracts} = JSON.parse(execSync(`${forge} build --format-json --root ${root}`, {encoding: 'utf8'}));
 	if (errors.length) {
 		throw error_with('compile error', {sol, errors});
 	}
@@ -111,6 +111,8 @@ export class Foundry {
 	static async launch({
 		port = 0,
 		wallets = [DEFAULT_WALLET],
+		anvil = 'anvil',
+		forge = 'forge',
 		chain,
 		infiniteCallGas,
 		gasLimit,
@@ -143,7 +145,7 @@ export class Foundry {
 			}
 			if (gasLimit) args.push('--gas-limit', gasLimit);
 			if (fork) args.push('--fork-url', fork);
-			let proc = spawn('anvil', args);
+			let proc = spawn(anvil, args);
 			proc.stdin.end();
 			const fail = data => {
 				proc.kill();
@@ -192,7 +194,7 @@ export class Foundry {
 					provider.destroy();
 					provider = new ethers.WebSocketProvider(endpoint, chain, {staticNetwork: true, cacheTimeout: -1});
 				}
-				let self = new Foundry(proc, provider, infoLog, {endpoint, chain, port, automine});
+				let self = Object.assign(new Foundry, {proc, provider, infoLog, procLog, endpoint, chain, port, automine, bin: {forge, anvil}});
 				wallets = await Promise.all(wallets.map(x => self.ensureWallet(x)));
 				if (base) {
 					await self.ensureBuilt(base);
@@ -206,13 +208,9 @@ export class Foundry {
 			}
 		});
 	}
-	constructor(proc, provider, infoLog, info) {
+	constructor() {
 		this.accounts = new Map();
 		this.wallets = {};
-		this.proc = proc;
-		this.provider = provider;
-		this.infoLog = infoLog;
-		this.info = info;
 	}
 	async ensureBuilt(base) {
 		if (this.built) return this.built;
@@ -223,7 +221,7 @@ export class Foundry {
 		if (!config) throw error_with('unknown profile', {profile});
 		// TODO fix me
 		try {
-			execSync('forge build', {encoding: 'utf8'}); // throws
+			execSync(`${this.bin.forge} build`, {encoding: 'utf8'}); // throws
 		} catch (err) {
 			if (err.stderr) {
 				err.stderr = strip_ansi(err.stderr);
@@ -331,7 +329,7 @@ export class Foundry {
 	async resolveArtifact(args) {
 		let {sol, bytecode, abi, file, contract} = args;
 		if (sol) {
-			return compile(sol, {contract});
+			return compile(sol, {contract, forge: this.bin.forge});
 		} else if (bytecode) {
 			if (!contract) contract = 'Unnamed';
 			abi = ethers.Interface.from(abi);

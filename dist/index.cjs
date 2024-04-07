@@ -74,7 +74,7 @@ function take_hash(s) {
 	return s.slice(2, 6);
 }
 
-function compile(sol, {contract, smart = true} = {}) {
+function compile(sol, {contract, forge = 'forge', smart = true} = {}) {
 	if (Array.isArray(sol)) {
 		sol = sol.join('\n');
 	}
@@ -98,7 +98,7 @@ function compile(sol, {contract, smart = true} = {}) {
 	node_fs.mkdirSync(src, {recursive: true});
 	let file = node_path.join(src, `${contract}.sol`);
 	node_fs.writeFileSync(file, sol);
-	let {errors, contracts} = JSON.parse(node_child_process.execSync(`forge build --format-json --root ${root}`, {encoding: 'utf8'}));
+	let {errors, contracts} = JSON.parse(node_child_process.execSync(`${forge} build --format-json --root ${root}`, {encoding: 'utf8'}));
 	if (errors.length) {
 		throw error_with('compile error', {sol, errors});
 	}
@@ -133,6 +133,8 @@ class Foundry {
 	static async launch({
 		port = 0,
 		wallets = [DEFAULT_WALLET],
+		anvil = 'anvil',
+		forge = 'forge',
 		chain,
 		infiniteCallGas,
 		gasLimit,
@@ -165,7 +167,7 @@ class Foundry {
 			}
 			if (gasLimit) args.push('--gas-limit', gasLimit);
 			if (fork) args.push('--fork-url', fork);
-			let proc = node_child_process.spawn('anvil', args);
+			let proc = node_child_process.spawn(anvil, args);
 			proc.stdin.end();
 			const fail = data => {
 				proc.kill();
@@ -214,7 +216,7 @@ class Foundry {
 					provider.destroy();
 					provider = new ethers.ethers.WebSocketProvider(endpoint, chain, {staticNetwork: true, cacheTimeout: -1});
 				}
-				let self = new Foundry(proc, provider, infoLog, {endpoint, chain, port, automine});
+				let self = Object.assign(new Foundry, {proc, provider, infoLog, procLog, endpoint, chain, port, automine, bin: {forge, anvil}});
 				wallets = await Promise.all(wallets.map(x => self.ensureWallet(x)));
 				if (base) {
 					await self.ensureBuilt(base);
@@ -228,13 +230,9 @@ class Foundry {
 			}
 		});
 	}
-	constructor(proc, provider, infoLog, info) {
+	constructor() {
 		this.accounts = new Map();
 		this.wallets = {};
-		this.proc = proc;
-		this.provider = provider;
-		this.infoLog = infoLog;
-		this.info = info;
 	}
 	async ensureBuilt(base) {
 		if (this.built) return this.built;
@@ -245,7 +243,7 @@ class Foundry {
 		if (!config) throw error_with('unknown profile', {profile});
 		// TODO fix me
 		try {
-			node_child_process.execSync('forge build', {encoding: 'utf8'}); // throws
+			node_child_process.execSync(`${this.bin.forge} build`, {encoding: 'utf8'}); // throws
 		} catch (err) {
 			if (err.stderr) {
 				err.stderr = strip_ansi(err.stderr);
@@ -353,7 +351,7 @@ class Foundry {
 	async resolveArtifact(args) {
 		let {sol, bytecode, abi, file, contract} = args;
 		if (sol) {
-			return compile(sol, {contract});
+			return compile(sol, {contract, forge: this.bin.forge});
 		} else if (bytecode) {
 			if (!contract) contract = 'Unnamed';
 			abi = ethers.ethers.Interface.from(abi);
