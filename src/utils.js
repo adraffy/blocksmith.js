@@ -14,7 +14,9 @@ export function is_address(s) {
 }
 
 export function to_address(x) {
-	if (is_address(x)) return x;
-	if (is_address(x.target)) return x.target;
-	if (is_address(x.address)) return x.address;
+	if (x) {
+		if (is_address(x)) return x;
+		if (is_address(x.target)) return x.target;
+		if (is_address(x.address)) return x.address;
+	}
 }

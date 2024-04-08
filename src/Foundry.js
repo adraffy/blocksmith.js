@@ -210,6 +210,7 @@ export class Foundry {
 	}
 	constructor() {
 		this.accounts = new Map();
+		this.event_map = new Map();
 		this.wallets = {};
 	}
 	async ensureBuilt(base) {
@@ -255,7 +256,7 @@ export class Foundry {
 			}
 			if (x) break;
 		}
-		throw error_with('expected wallet', {wallet: x});
+		throw error_with('expected wallet', {wallet: xs});
 	}
 	async ensureWallet(x) {
 		if (x instanceof ethers.Wallet) return this.requireWallet(x);
@@ -323,7 +324,24 @@ export class Foundry {
 		if (!infoLog) return;
  		for (let x of receipt.logs) {
 			let log = abi.parseLog(x);
-			if (log) infoLog(TAG_LOG, log.signature, this.pretty(log.args.toObject()));
+			if (!log) {
+				// TODO: remove fastpast since this is probably better
+				let abi = this.event_map.get(x.topics[0]);
+				if (abi) {
+					log = abi.parseLog(x);
+				}
+				/*
+				for (let c of this.accounts.values()) {
+					if (c instanceof ethers.BaseContract) {
+						log = c.interface.parseLog(x);
+						if (log) break;
+					}
+				}
+				*/
+			}
+			if (log) {
+				infoLog(TAG_LOG, log.signature, this.pretty(log.args.toObject()));
+			}
 		}
 	}	
 	async resolveArtifact(args) {
@@ -355,6 +373,7 @@ export class Foundry {
 	async deploy({from, args = [], ...artifactLike}, proto = {}) {
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);
 		let {abi, bytecode, ...artifact} = await this.resolveArtifact(artifactLike);
+		abi.forEachEvent(e => this.event_map.set(e.topicHash, abi)); // remember
 		let {contract} = artifact;
 		let factory = new ethers.ContractFactory(abi, bytecode, w);
 		let unsigned = await factory.getDeployTransaction(...args);
@@ -369,7 +388,7 @@ export class Foundry {
 		c.__artifact = artifact;
 		c.__receipt = tx;
 		Object.assign(c, proto);
-		this.accounts.set(address, c); // keep track of it
+		this.accounts.set(address, c); // remember
 		this.infoLog?.(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), {address, gas: receipt.gasUsed, size: code.length});
 		this._dump_logs(abi, receipt);
 		return c;
