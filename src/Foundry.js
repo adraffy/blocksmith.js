@@ -4,10 +4,12 @@ import {createWriteStream, accessSync, realpathSync, readFileSync, writeFileSync
 import {readFile} from 'node:fs/promises';
 import {join, dirname, basename} from 'node:path';
 import {tmpdir} from 'node:os';
-import {error_with, is_address} from './utils.js';
+import {error_with, is_address, to_address} from './utils.js';
 import toml from 'toml';
 import {inspect} from 'node:util';
 import {Console} from 'node:console';
+
+// https://docs.soliditylang.org/en/latest/grammar.html#a4.SolidityLexer.Identifier
 
 function on_newline(fn) {
 	let prior = '';
@@ -36,28 +38,28 @@ function strip_ansi(s) {
 
 const TAG_START  =            'LAUNCH'; //ansi('34', 'LAUNCH');
 const TAG_DEPLOY = ansi('33', 'DEPLOY');
-const TAG_LOG    = ansi('36', '***LOG');
-const TAG_TX     = ansi('33', '****TX');
-const TAG_STOP   =            '**STOP'; // ansi('34', '**STOP');
+const TAG_LOG    = ansi('36', 'LOG');
+const TAG_TX     = ansi('33', 'TX');
+const TAG_STOP   =            'STOP'; // ansi('34', '**STOP');
 
 const DEFAULT_WALLET = 'admin';
 
 const _OWNER = Symbol('blocksmith');
 const _NAME  = Symbol('blocksmith.name');
-function toString() {
+function get_NAME() {
 	return this[_NAME];
 }
 
 function take_hash(s) {
-	return s.slice(2, 6);
+	return s.slice(2, 10);
 }
 
-export function compile(sol, {contract, forge = 'forge', smart = true} = {}) {
+export function compile(sol, {contract, forge = 'forge', remap = [], smart = true} = {}) {
 	if (Array.isArray(sol)) {
 		sol = sol.join('\n');
 	}
 	if (!contract) {
-		let match = sol.match(/contract\s(.*)\b/);
+		let match = sol.match(/contract\s([a-z$_][0-9a-z$_]*)/i);
 		if (!match) throw error_with('expected contract name', {sol});
 		contract = match[1];
 	}
@@ -76,7 +78,11 @@ export function compile(sol, {contract, forge = 'forge', smart = true} = {}) {
 	mkdirSync(src, {recursive: true});
 	let file = join(src, `${contract}.sol`);
 	writeFileSync(file, sol);
-	let {errors, contracts} = JSON.parse(execSync(`${forge} build --format-json --root ${root}`, {encoding: 'utf8'}));
+	let cmd = `${forge} build --format-json --root ${root}`;
+	if (remap.length) {
+		cmd = `${cmd} ${remap.map(x => `--remappings ${x}`).join(' ')}`
+	}
+	let {errors, contracts} = JSON.parse(execSync(cmd, {encoding: 'utf8'}));
 	if (errors.length) {
 		throw error_with('compile error', {sol, errors});
 	}
@@ -186,6 +192,7 @@ export class Foundry {
 				let endpoint = `ws://${host}`;
 				port = parseInt(host.slice(host.lastIndexOf(':') + 1));
 				let provider = new ethers.WebSocketProvider(endpoint, chain, {staticNetwork: true});
+				//let provider = new ethers.IpcSocketProvider('/tmp/anvil.ipc', chain, {staticNetwork: true});
 				if (!chain) {
 					chain = parseInt(await provider.send('eth_chainId')); // determine chain id
 				}
@@ -211,6 +218,7 @@ export class Foundry {
 	constructor() {
 		this.accounts = new Map();
 		this.event_map = new Map();
+		this.error_map = new Map();
 		this.wallets = {};
 	}
 	async ensureBuilt(base) {
@@ -242,23 +250,33 @@ export class Foundry {
 	}
 	requireWallet(...xs) {
 		for (let x of xs) {
+			if (!x) continue;
 			if (x instanceof ethers.Wallet) {
 				if (x[_OWNER] === this) return x;
 				throw error_with('unowned wallet', {wallet: x});
-			} else if (is_address(x)) {
-				let a = this.accounts.get(x);
+			}
+			let address = to_address(x);
+			if (address) {
+				let a = this.accounts.get(address);
 				if (a) return a;
-				throw error_with('unknown wallet', {address: x});
 			} else if (typeof x === 'string') {
 				let a = this.wallets[x];
 				if (a) return a;
-				throw error_with('unknown wallet', {name: x});
 			}
-			if (x) break;
+			throw error_with('expected wallet', {wallet: x});
 		}
-		throw error_with('expected wallet', {wallet: xs});
+		throw new Error('missing required wallet');
 	}
-	async ensureWallet(x) {
+	async createWallet({prefix = 'random', ...a} = {}) {
+		let id = 0;
+		while (true) {
+			let name = `${prefix}${++id}`; // TODO fix O(n)
+			if (!this.wallets[name]) {
+				return this.ensureWallet(name, a);
+			}
+		}
+	}
+	async ensureWallet(x, {ether = 10000} = {}) {
 		if (x instanceof ethers.Wallet) return this.requireWallet(x);
 		if (!x || typeof x !== 'string' || is_address(x)) {
 			throw error_with('expected wallet name', {name: x});
@@ -266,10 +284,13 @@ export class Foundry {
 		let wallet = this.wallets[x];
 		if (!wallet) {
 			wallet = new ethers.Wallet(ethers.id(x), this.provider);
-			await this.provider.send('anvil_setBalance', [wallet.address, ethers.toBeHex(10000n * BigInt(1e18))]);
+			ether = BigInt(ether);
+			if (ether > 0) {
+				await this.provider.send('anvil_setBalance', [wallet.address, ethers.toBeHex(ether * BigInt(1e18))]);
+			}
 			wallet[_NAME] = x;
 			wallet[_OWNER] = this;
-			wallet.toString = toString;
+			wallet.toString = get_NAME;
 			this.wallets[x] = wallet;
 			this.accounts.set(wallet.address, wallet);
 		}
@@ -303,6 +324,23 @@ export class Foundry {
 			}
 		}
 		return x;
+	}
+	parseError(err) {
+		// TODO: fix me
+		if (err.code === 'CALL_EXCEPTION') {
+			let {data} = err;
+			console.log(this.error_map);
+			let bucket = this.error_map.get(data.slice(0, 10));
+			console.log('bucket', bucket);
+			if (bucket) {
+				for (let abi of bucket.values()) {
+					try {
+						return abi.parseError(data);
+					} catch (err) {
+					}
+				}
+			}
+		}
 	}
 	async confirm(p, extra = {}) {
 		let tx = await p;
@@ -347,7 +385,18 @@ export class Foundry {
 	async resolveArtifact(args) {
 		let {sol, bytecode, abi, file, contract} = args;
 		if (sol) {
-			return compile(sol, {contract, forge: this.bin.forge});
+			let opts = {contract, forge: this.bin.forge};
+			if (/^\s*import/m.test(sol)) { // TODO: this is hacky but useful
+				const {base, config} = await this.ensureBuilt();
+				opts.remap = [
+					`@src=${join(base, config.src)}`,
+					...(config.remappings ?? []).map(s => {
+						let [a, b] = s.split('=');
+						return `${a}=${join(base, b)}`;
+					})
+				];
+			}
+			return compile(sol, opts);
 		} else if (bytecode) {
 			if (!contract) contract = 'Unnamed';
 			abi = ethers.Interface.from(abi);
@@ -374,6 +423,14 @@ export class Foundry {
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);
 		let {abi, bytecode, ...artifact} = await this.resolveArtifact(artifactLike);
 		abi.forEachEvent(e => this.event_map.set(e.topicHash, abi)); // remember
+		abi.forEachError(e => {
+			let bucket = this.error_map.get(e.selector);
+			if (!bucket) {
+				bucket = new Map();
+				this.error_map.set(e.selector, bucket);
+			}
+			bucket.set(ethers.id(e.format('sighash')), abi);
+		});
 		let {contract} = artifact;
 		let factory = new ethers.ContractFactory(abi, bytecode, w);
 		let unsigned = await factory.getDeployTransaction(...args);
@@ -384,12 +441,12 @@ export class Foundry {
 		let c = new ethers.Contract(address, abi, w);
 		c[_NAME] = `${contract}<${take_hash(address)}>`; // so we can deploy the same contract multiple times
 		c[_OWNER] = this;
-		c.toString = toString;
+		c.toString = get_NAME;
 		c.__artifact = artifact;
 		c.__receipt = tx;
 		Object.assign(c, proto);
 		this.accounts.set(address, c); // remember
-		this.infoLog?.(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), {address, gas: receipt.gasUsed, size: code.length});
+		this.infoLog?.(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), `${receipt.gasUsed}gas ${code.length}B`); // {address, gas: receipt.gasUsed, size: code.length});
 		this._dump_logs(abi, receipt);
 		return c;
 	}

@@ -26,6 +26,9 @@ export class Node extends Map {
 		for (let x = this; x.parent; x = x.parent) v.push(x.label);
 		return v.join('.');
 	}
+	get dns() {
+		return ethers.dnsEncode(this.name, 255);
+	}
 	get depth() {
 		let n = 0;
 		for (let x = this; x.parent; x = x.parent) ++n;
@@ -35,6 +38,9 @@ export class Node extends Map {
 		let n = 0;
 		this.scan(() => ++n);
 		return n;
+	}
+	get isETH2LD() {
+		return this.parent?.name === 'eth';
 	}
 	find(name) {
 		return split(name).reduceRight((n, s) => n?.get(s), this);

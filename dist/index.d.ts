@@ -1,7 +1,7 @@
 import {
 	WebSocketProvider, BaseWallet, 
 	Contract, InterfaceAbi,
-	TransactionReceipt, TransactionResponse
+	TransactionReceipt, TransactionResponse, BigNumberish
 } from "ethers";
 import {ChildProcess} from "node:child_process";
 
@@ -32,6 +32,9 @@ type ArtifactLike = {
 
 export function compile(sol: string | string[], options?: {contract?: string}): Artifact;
 type ToConsoleLog = boolean | PathLike | ((line: string) => any);
+type WalletOptions = {
+	ether: BigNumberish;	
+};
 export class Foundry {
 	static base(dir?: PathLike): string;
 	static profile(): string;
@@ -69,7 +72,8 @@ export class Foundry {
 
 	// require a wallet
 	requireWallet(wallet: WalletLike, backup?: WalletLike): DevWallet;
-	ensureWallet(wallet: WalletLike): Promise<DevWallet>;
+	createWallet(options?: {prefix: string} & WalletOptions): Promise<DevWallet>;
+	ensureWallet(wallet: WalletLike, options?: WalletOptions): Promise<DevWallet>;
 
 	resolveArtifact(artifact: ArtifactLike): Promise<Artifact>;
 
@@ -93,11 +97,13 @@ export class Node extends Map {
 	readonly nodehash: string;
 	readonly label: string;
 	readonly labelhash: string;
-	readonly info: {wild: boolean, drop: number, tor: boolean};
 
+	get root(): Node;
 	get name(): string;
+	get dns(): string;
 	get depth(): number;
 	get nodes(): number;
+	get isETH2LD(): boolean;
 
 	find(name: string): Node | undefined;
 	create(name: string): Node;

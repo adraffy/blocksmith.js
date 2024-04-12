@@ -27,6 +27,17 @@ test('deploy inline', async () => {
 	assert.equal(await contract.g(69, 420), 69420n);
 });
 
+test('deploy inline w/import', async () => {
+	let foundry = await Foundry.launch();
+	after(() => foundry.shutdown());
+	let contract = await foundry.deploy({sol: `
+		import {Deploy} from "@src/deploy/Deploy.sol";
+		contract Chonk is Deploy {
+		}
+	`});
+	assert.equal(await contract.read(), 1n);
+});
+
 test('solc tagged template', async () => {
 	let {bytecode} = solc`
 		contract Chonk {
