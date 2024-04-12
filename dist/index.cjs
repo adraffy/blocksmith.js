@@ -443,9 +443,11 @@ class Foundry {
 			file: node_path.join(base, src, file) // absolute
 		};
 	}
-	async deploy({from, args = [], ...artifactLike}, proto = {}) {
+	async deploy({from, args = [], ...artifactLike}) {
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);
 		let {abi, bytecode, ...artifact} = await this.resolveArtifact(artifactLike);
+		bytecode = ethers.ethers.getBytes(bytecode);
+		if (!bytecode.length) throw error_with('no bytecode', artifact);
 		abi.forEachEvent(e => this.event_map.set(e.topicHash, abi)); // remember
 		abi.forEachError(e => {
 			let bucket = this.error_map.get(e.selector);
@@ -468,7 +470,6 @@ class Foundry {
 		c.toString = get_NAME;
 		c.__artifact = artifact;
 		c.__receipt = tx;
-		Object.assign(c, proto);
 		this.accounts.set(address, c); // remember
 		this.infoLog?.(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), `${receipt.gasUsed}gas ${code.length}B`); // {address, gas: receipt.gasUsed, size: code.length});
 		this._dump_logs(abi, receipt);
@@ -605,6 +606,7 @@ class Resolver {
 	async text(key, a)   { return this.record({type: 'text', arg: key}, a); }
 	async addr(type, a)  { return this.record({type: 'addr', arg: type}, a); }
 	async contenthash(a) { return this.record({type: 'contenthash'}, a); }
+	async name(a)        { return this.record({type: 'name'}, a); }
 	async record(rec, a) {
 		let [[{res, err}]] = await this.records([rec], a);
 		if (err) throw err;

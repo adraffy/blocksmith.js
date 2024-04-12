@@ -81,7 +81,7 @@ export class Foundry {
 	deploy<P>(options: {
 		from?: WalletLike;
 		args?: any[];
-	} & ArtifactLike, proto?: P): Promise<DeployedContract & P>;
+	} & ArtifactLike): Promise<DeployedContract>;
 
 	// send a transaction promise and get a pretty print console log
 	confirm(call: Promise<TransactionResponse>, info?: {[key: string]: any}): Promise<TransactionReceipt>;

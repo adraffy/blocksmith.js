@@ -419,9 +419,11 @@ export class Foundry {
 			file: join(base, src, file) // absolute
 		};
 	}
-	async deploy({from, args = [], ...artifactLike}, proto = {}) {
+	async deploy({from, args = [], ...artifactLike}) {
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);
 		let {abi, bytecode, ...artifact} = await this.resolveArtifact(artifactLike);
+		bytecode = ethers.getBytes(bytecode);
+		if (!bytecode.length) throw error_with('no bytecode', artifact);
 		abi.forEachEvent(e => this.event_map.set(e.topicHash, abi)); // remember
 		abi.forEachError(e => {
 			let bucket = this.error_map.get(e.selector);
@@ -444,7 +446,6 @@ export class Foundry {
 		c.toString = get_NAME;
 		c.__artifact = artifact;
 		c.__receipt = tx;
-		Object.assign(c, proto);
 		this.accounts.set(address, c); // remember
 		this.infoLog?.(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), `${receipt.gasUsed}gas ${code.length}B`); // {address, gas: receipt.gasUsed, size: code.length});
 		this._dump_logs(abi, receipt);

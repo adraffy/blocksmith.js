@@ -46,6 +46,7 @@ export class Resolver {
 	async text(key, a)   { return this.record({type: 'text', arg: key}, a); }
 	async addr(type, a)  { return this.record({type: 'addr', arg: type}, a); }
 	async contenthash(a) { return this.record({type: 'contenthash'}, a); }
+	async name(a)        { return this.record({type: 'name'}, a); }
 	async record(rec, a) {
 		let [[{res, err}]] = await this.records([rec], a);
 		if (err) throw err;
