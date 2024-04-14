@@ -104,13 +104,14 @@ function compile(sol, {contract, forge = 'forge', remap = [], smart = true} = {}
 	if (remap.length) {
 		cmd = `${cmd} ${remap.map(x => `--remappings ${x}`).join(' ')}`;
 	}
-	let {errors, contracts} = JSON.parse(execSync(cmd, {encoding: 'utf8'}));
+	let res = JSON.parse(execSync(cmd, {encoding: 'utf8'}));
+	let errors = res.errors.filter(x => x.severity!== 'warning');
 	if (errors.length) {
 		throw error_with('compile error', {sol, errors});
 	}
-	let info = contracts[file]?.[contract]?.[0];
+	let info = res.contracts[file]?.[contract]?.[0];
 	if (!info) {
-		throw error_with('expected contract', {sol, contracts, contract});
+		throw error_with('expected contract', {sol, contracts: Object.keys(res.contracts), contract});
 	}
 	let {contract: {abi, evm: {bytecode: {object: bytecode}}}} = info;
 	abi = ethers.Interface.from(abi);
@@ -250,6 +251,9 @@ class Foundry {
 		let profile = Foundry.profile();
 		config = config.profile[profile];
 		if (!config) throw error_with('unknown profile', {profile});
+		// TODO: get default template
+		if (!config.src) config.src = 'src';
+		if (!config.out) config.out = 'out';
 		// TODO fix me
 		try {
 			execSync(`${this.bin.forge} build`, {encoding: 'utf8'}); // throws
@@ -469,7 +473,7 @@ class Foundry {
 		c.__artifact = artifact;
 		c.__receipt = tx;
 		this.accounts.set(address, c); // remember
-		this.infoLog?.(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), `${receipt.gasUsed}gas ${code.length}B`); // {address, gas: receipt.gasUsed, size: code.length});
+		this.infoLog?.(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), `${ansi('33', receipt.gasUsed)}gas ${ansi('33', code.length)}bytes`); // {address, gas: receipt.gasUsed, size: code.length});
 		this._dump_logs(abi, receipt);
 		return c;
 	}
@@ -482,6 +486,9 @@ function split(s) {
 class Node extends Map {
 	static root() {
 		return new this(null, ethers.ZeroHash, '[root]');
+	}
+	static create(name) {
+		return this.root().create(name);
 	}
 	constructor(parent, namehash, label, labelhash) {
 		super();
@@ -502,7 +509,7 @@ class Node extends Map {
 		return v.join('.');
 	}
 	get dns() {
-		return ethers.dnsEncode(this.name, 255);
+		return ethers.getBytes(ethers.dnsEncode(this.name, 255));
 	}
 	get depth() {
 		let n = 0;

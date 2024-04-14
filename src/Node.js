@@ -8,6 +8,9 @@ export class Node extends Map {
 	static root() {
 		return new this(null, ethers.ZeroHash, '[root]');
 	}
+	static create(name) {
+		return this.root().create(name);
+	}
 	constructor(parent, namehash, label, labelhash) {
 		super();
 		this.parent = parent;
@@ -27,7 +30,7 @@ export class Node extends Map {
 		return v.join('.');
 	}
 	get dns() {
-		return ethers.dnsEncode(this.name, 255);
+		return ethers.getBytes(ethers.dnsEncode(this.name, 255));
 	}
 	get depth() {
 		let n = 0;

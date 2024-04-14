@@ -100,7 +100,7 @@ export class Node extends Map {
 
 	get root(): Node;
 	get name(): string;
-	get dns(): string;
+	get dns(): Uint8Array;
 	get depth(): number;
 	get nodes(): number;
 	get isETH2LD(): boolean;
