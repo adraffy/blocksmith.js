@@ -17,7 +17,7 @@ function on_newline(fn) {
 		prior += buf.toString();
 		let v = prior.split('\n');
 		prior = v.pop();
-		v.forEach(fn);
+		v.forEach(x => fn(x));
 	};
 }
 
@@ -184,7 +184,7 @@ export class Foundry {
 				} else if (procLog) {
 					// pass string
 					procLog(bootmsg);
-					proc.stdout.on('data', on_newline(procLog));
+					proc.stdout.on('data', on_newline(procLog)); // TODO: how to intercept console2
 				}
 				if (is_pathlike(infoLog)) {
 					let console = new Console(createWriteStream(infoLog));
@@ -251,6 +251,9 @@ export class Foundry {
 			this.proc.once('exit', ful);
 			this.proc.kill();
 		});
+	}
+	async nextBlock(n = 1) {
+		await this.provider.send('anvil_mine', [ethers.toBeHex(n)]);
 	}
 	requireWallet(...xs) {
 		for (let x of xs) {
