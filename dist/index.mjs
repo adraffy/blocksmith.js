@@ -39,12 +39,16 @@ function on_newline(fn) {
 		prior += buf.toString();
 		let v = prior.split('\n');
 		prior = v.pop();
-		v.forEach(fn);
+		v.forEach(x => fn(x));
 	};
 }
 
 function is_pathlike(x) {
 	return typeof x === 'string' || x instanceof URL;
+}
+
+function remove_sol_ext(s) {
+	return s.replace(/\.sol$/, '');
 }
 
 const TMP_DIR = realpathSync(join(tmpdir(), 'blocksmith'));
@@ -102,7 +106,7 @@ function compile(sol, {contract, forge = 'forge', remap = [], smart = true} = {}
 	writeFileSync(file, sol);
 	let cmd = `${forge} build --format-json --root ${root}`;
 	if (remap.length) {
-		cmd = `${cmd} ${remap.map(x => `--remappings ${x}`).join(' ')}`;
+		cmd = `${cmd} ${remap.map(([a, b]) => `--remappings ${a}=${b}`).join(' ')}`;
 	}
 	let res = JSON.parse(execSync(cmd, {encoding: 'utf8'}));
 	let errors = res.errors.filter(x => x.severity!== 'warning');
@@ -110,13 +114,24 @@ function compile(sol, {contract, forge = 'forge', remap = [], smart = true} = {}
 		throw error_with('compile error', {sol, errors});
 	}
 	let info = res.contracts[file]?.[contract]?.[0];
+	let origin = `InlineCode{${hash}}`;
 	if (!info) {
-		throw error_with('expected contract', {sol, contracts: Object.keys(res.contracts), contract});
+		for (let x of Object.values(res.contracts)) {
+			let c = x[contract];
+			if (c) {
+				info = c[0];
+				//origin = '@import';
+				break;
+			}
+		}
+		if (!info) {
+			throw error_with('expected contract', {sol, contracts: Object.keys(res.contracts), contract});
+		}
 	}
 	let {contract: {abi, evm: {bytecode: {object: bytecode}}}} = info;
 	abi = ethers.Interface.from(abi);
 	bytecode = '0x' + bytecode;
-	return {abi, bytecode, contract, origin: `InlineCode{${hash}}`, sol};
+	return {abi, bytecode, contract, origin, sol};
 }
 
 class Foundry {
@@ -147,7 +162,8 @@ class Foundry {
 		gasLimit,
 		blockSec,
 		autoclose = true,
-		fork, base,
+		fork, 
+		base, profile,
 		procLog,
 		infoLog = true,
 		...unknown
@@ -155,10 +171,26 @@ class Foundry {
 		if (Object.keys(unknown).length) {
 			throw error_with('unknown options', unknown);
 		}
+		if (!base) base = this.base();
+		if (!profile) profile = this.profile();
+		let config;
+		try {
+			config = toml.parse(readFileSync(join(base, CONFIG_NAME), {encoding: 'utf8'}));
+		} catch (err) {
+			throw error_with(`invalid ${CONFIG_NAME}`, {base}, err);
+		}
+		config = config.profile[profile];
+		if (!config) throw error_with('unknown foundry profile', {profile});
+		// TODO: get default template
+		if (!config.src) config.src = 'src';
+		if (!config.out) config.out = 'out';
+		if (!config.remappings) config.remappings = [];
+
 		if (!infoLog) infoLog = undefined;
 		if (!procLog) procLog = undefined;
 		if (infoLog === true) infoLog = console.log.bind(console);
 		if (procLog === true) procLog = console.log.bind(console);
+
 		return new Promise((ful, rej) => {
 			let args = [
 				'--port', port,
@@ -206,7 +238,7 @@ class Foundry {
 				} else if (procLog) {
 					// pass string
 					procLog(bootmsg);
-					proc.stdout.on('data', on_newline(procLog));
+					proc.stdout.on('data', on_newline(procLog)); // TODO: how to intercept console2
 				}
 				if (is_pathlike(infoLog)) {
 					let console = new Console(createWriteStream(infoLog));
@@ -224,11 +256,8 @@ class Foundry {
 					provider.destroy();
 					provider = new ethers.WebSocketProvider(endpoint, chain, {staticNetwork: true, cacheTimeout: -1});
 				}
-				let self = Object.assign(new Foundry, {proc, provider, infoLog, procLog, endpoint, chain, port, automine, bin: {forge, anvil}});
+				let self = Object.assign(new Foundry, {proc, provider, infoLog, procLog, endpoint, chain, port, automine, base, config, bin: {forge, anvil}});
 				wallets = await Promise.all(wallets.map(x => self.ensureWallet(x)));
-				if (base) {
-					await self.ensureBuilt(base);
-				}
 				if (infoLog) {
 					const t = Date.now();
 					infoLog(TAG_START, self.pretty({chain, endpoint, wallets}));
@@ -244,17 +273,21 @@ class Foundry {
 		this.error_map = new Map();
 		this.wallets = {};
 	}
-	async ensureBuilt(base) {
+	remappings() {
+		// TODO: figure out whatever bullshit foundry is using for "forge-std/console2.sol" => "lib/forge-std/src/console2.sol"
+		let {base, config} = this;
+		return [
+			['@src', join(base, config.src)],
+			...config.remappings.map(s => {
+				let [a, b] = s.split('=');
+				return [a, join(base, b)];
+			})
+		];
+	}
+	async ensureBuilt() {
 		if (this.built) return this.built;
-		if (!base) base = Foundry.base();
-		let config = toml.parse(readFileSync(join(base, CONFIG_NAME), {encoding: 'utf8'})); // throws
-		let profile = Foundry.profile();
-		config = config.profile[profile];
-		if (!config) throw error_with('unknown profile', {profile});
-		// TODO: get default template
-		if (!config.src) config.src = 'src';
-		if (!config.out) config.out = 'out';
 		// TODO fix me
+		// make it so this can be invalidated
 		try {
 			execSync(`${this.bin.forge} build`, {encoding: 'utf8'}); // throws
 		} catch (err) {
@@ -265,7 +298,7 @@ class Foundry {
 			}
 			throw err;
 		}
-		return this.built = {config, base, profile};
+		return this.built = {date: new Date()};
 	}
 	async shutdown() {
 		return new Promise(ful => {
@@ -273,6 +306,9 @@ class Foundry {
 			this.proc.once('exit', ful);
 			this.proc.kill();
 		});
+	}
+	async nextBlock(n = 1) {
+		await this.provider.send('anvil_mine', [ethers.toBeHex(n)]);
 	}
 	requireWallet(...xs) {
 		for (let x of xs) {
@@ -409,20 +445,17 @@ class Foundry {
 		}
 	}	
 	async resolveArtifact(args) {
-		let {sol, bytecode, abi, file, contract} = args;
+		let {import: imported, sol, bytecode, abi, file, contract} = args;
+		if (imported) {
+			sol = `import "${imported}";`;
+			contract = remove_sol_ext(basename(imported));
+		}
 		if (sol) {
-			let opts = {contract, forge: this.bin.forge};
-			if (/^\s*import/m.test(sol)) { // TODO: this is hacky but useful
-				const {base, config} = await this.ensureBuilt();
-				opts.remap = [
-					`@src=${join(base, config.src)}`,
-					...(config.remappings ?? []).map(s => {
-						let [a, b] = s.split('=');
-						return `${a}=${join(base, b)}`;
-					})
-				];
-			}
-			return compile(sol, opts);
+			return compile(sol, {
+				contract, 
+				forge: this.bin.forge,
+				remap: this.remappings()
+			});
 		} else if (bytecode) {
 			if (!contract) contract = 'Unnamed';
 			abi = ethers.Interface.from(abi);
@@ -433,10 +466,11 @@ class Foundry {
 		throw error_with('unknown artifact', args);
 	}
 	async fileArtifact(file, contract) {
-		file = file.replace(/\.sol$/, ''); // remove optional extension
+		await this.ensureBuilt();
+		file = remove_sol_ext(file); // remove optional extension
 		if (!contract) contract = basename(file); // derive contract name from file name
 		file += '.sol'; // add extension
-		const {base, config: {src, out}} = await this.ensureBuilt(); // compile project
+		const {base, config: {src, out}} = this; // compile project
 		let artifact_file = join(out, file, `${contract}.json`);
 		let {abi, bytecode: {object: bytecode}} = JSON.parse(await readFile(join(base, artifact_file)));
 		abi = ethers.Interface.from(abi);
@@ -568,7 +602,22 @@ class Node extends Map {
 const IFACE_ENSIP_10 = '0x9061b923';
 const IFACE_TOR = '0x73302a25';
 
+const RESOLVER_ABI = new ethers.Interface([
+	'function supportsInterface(bytes4) view returns (bool)',
+	'function resolve(bytes name, bytes data) view returns (bytes)',
+	'function addr(bytes32 node, uint coinType) view returns (bytes)',
+	'function addr(bytes32 node) view returns (address)',
+	'function text(bytes32 node, string key) view returns (string)',
+	'function contenthash(bytes32 node) view returns (bytes)',
+	'function pubkey(bytes32 node) view returns (bytes32 x, bytes32 y)',
+	'function name(bytes32 node) view returns (string)',
+	'function multicall(bytes[] calldata data) external returns (bytes[] memory results)',
+]);
+
 class Resolver {
+	static get ABI() {
+		return RESOLVER_ABI;
+	}
 	static async dump(ens, node) {
 		let nodes = node.flat();
 		let owners = await Promise.all(nodes.map(x => ens.owner(x.namehash)));
@@ -582,31 +631,19 @@ class Resolver {
 		for (let base = node, drop = 0; base; base = base.parent, drop++) {
 			let resolver = await ens.resolver(base.namehash);
 			if (resolver === ethers.ZeroAddress) continue;
-			let contract = new ethers.Contract(resolver, [
-				'function supportsInterface(bytes4) view returns (bool)',
-				'function resolve(bytes name, bytes data) view returns (bytes)',
-				'function addr(bytes32 node, uint coinType) view returns (bytes)',
-				'function addr(bytes32 node) view returns (address)',
-				'function text(bytes32 node, string key) view returns (string)',
-				'function contenthash(bytes32 node) view returns (bytes)',
-				'function pubkey(bytes32 node) view returns (bytes32 x, bytes32 y)',
-				'function name(bytes32 node) view returns (string)',
-				'function multicall(bytes[] calldata data) external returns (bytes[] memory results)',
-			], ens.runner.provider);
-			let wild = await contract.supportsInterface(IFACE_ENSIP_10);
+			let contract = new ethers.Contract(resolver, RESOLVER_ABI, ens.runner.provider);
+			let wild = await contract.supportsInterface(IFACE_ENSIP_10).catch(() => false);
 			if (drop && !wild) break;
 			let tor = wild && await contract.supportsInterface(IFACE_TOR);
-			return new this(node, base, contract, {wild, drop, tor});
+			return Object.assign(new this(node, contract), {wild, tor, drop, base});
 		}
 	}
-	constructor(node, base, contract, info) {
+	constructor(node, contract) {
 		this.node = node;
-		this.base = base;
 		this.contract = contract;
-		this.info = info;
 	}
-	get address() { 
-		return this.contract.target; 
+	get address() {
+		return this.contract.target;
 	}
 	async text(key, a)   { return this.record({type: 'text', arg: key}, a); }
 	async addr(type, a)  { return this.record({type: 'addr', arg: type}, a); }
@@ -619,7 +656,7 @@ class Resolver {
 	}
 	async records(recs, {multi = true, ccip = true, tor: tor_prefix} = {}) {
 		const options = {enableCcipRead: ccip};
-		const {node, info: {wild, tor}, contract} = this;
+		const {node, contract, wild, tor} = this;
 		const {interface: abi} = contract;
 		let dnsname = ethers.dnsEncode(node.name, 255);
 		if (multi && recs.length > 1 && wild && tor) {
@@ -686,7 +723,7 @@ class Resolver {
 
 function type_from_record(rec) {
 	let {type, arg} = rec;
-	if (type === 'addr')  type = Number.isInteger(arg) ? 'addr(bytes32,uint256)' : 'addr(bytes32)';
+	if (type === 'addr') type = arg === undefined ? 'addr(bytes32)' : 'addr(bytes32,uint256)';
 	return type;
 }
 

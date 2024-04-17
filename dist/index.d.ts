@@ -23,6 +23,7 @@ type FileArtifact = BaseArtifact & {file: string};
 type InlineArtifact = BaseArtifact & {sol: string};
 type Artifact = FileArtifact | InlineArtifact | BaseArtifact;
 type ArtifactLike = {
+	import?: string;
 	sol?: string;
 	file?: string;
 	abi?: InterfaceAbi;
@@ -49,7 +50,8 @@ export class Foundry {
 		infoLog?: ToConsoleLog, // default: off
 		procLog?: ToConsoleLog; // default: console.log()
 		fork?: PathLike;
-		base?: PathLike;
+		base?: PathLike; // default: ancestor w/foundry.toml
+		profile?: string; // default: "default"
 	}): Promise<Foundry>;
 
 	readonly proc: ChildProcess;
@@ -60,15 +62,18 @@ export class Foundry {
 	readonly chain: number;
 	readonly port: number;
 	readonly automine: boolean;
+	readonly base: string;
+	readonly profile: string;
+	readonly config: {
+		src: string;
+		out: string;
+		remappings: string[];
+	};
 	readonly bin: {
 		anvil: string;
 		forge: string;
 	};
-	readonly built?: {
-		config: Object;
-		base: string;
-		profile: string;
-	};
+	readonly built?: {date: Date};
 
 	// require a wallet
 	requireWallet(wallet: WalletLike, backup?: WalletLike): DevWallet;
@@ -124,9 +129,12 @@ export class Resolver {
 	static get(ens: Contract, node: Node): Promise<Resolver | undefined>;
 
 	readonly node: Node;
-	readonly base: Node;
 	readonly contract: Contract;
-	readonly info: {wild: boolean, drop: number, tor: boolean};
+	
+	readonly base?: Node;
+	readonly wild?: boolean;
+	readonly tor?: boolean;
+	readonly drop?: number;
 
 	get address(): string;
 

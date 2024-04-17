@@ -1,4 +1,9 @@
 # presence of this file signals the base Foundry directory
+
 [profile.default]
 src = "test"
-out = "out"
+#out = "out"
+
+remappings = [
+	'forge-std/=/lib/forge-std/src/'
+]

@@ -25,6 +25,10 @@ function is_pathlike(x) {
 	return typeof x === 'string' || x instanceof URL;
 }
 
+function remove_sol_ext(s) {
+	return s.replace(/\.sol$/, '');
+}
+
 const TMP_DIR = realpathSync(join(tmpdir(), 'blocksmith'));
 
 const CONFIG_NAME = 'foundry.toml';
@@ -80,7 +84,7 @@ export function compile(sol, {contract, forge = 'forge', remap = [], smart = tru
 	writeFileSync(file, sol);
 	let cmd = `${forge} build --format-json --root ${root}`;
 	if (remap.length) {
-		cmd = `${cmd} ${remap.map(x => `--remappings ${x}`).join(' ')}`
+		cmd = `${cmd} ${remap.map(([a, b]) => `--remappings ${a}=${b}`).join(' ')}`
 	}
 	let res = JSON.parse(execSync(cmd, {encoding: 'utf8'}));
 	let errors = res.errors.filter(x => x.severity!== 'warning');
@@ -88,13 +92,24 @@ export function compile(sol, {contract, forge = 'forge', remap = [], smart = tru
 		throw error_with('compile error', {sol, errors});
 	}
 	let info = res.contracts[file]?.[contract]?.[0];
+	let origin = `InlineCode{${hash}}`;
 	if (!info) {
-		throw error_with('expected contract', {sol, contracts: Object.keys(res.contracts), contract});
+		for (let x of Object.values(res.contracts)) {
+			let c = x[contract];
+			if (c) {
+				info = c[0];
+				//origin = '@import';
+				break;
+			}
+		}
+		if (!info) {
+			throw error_with('expected contract', {sol, contracts: Object.keys(res.contracts), contract});
+		}
 	}
 	let {contract: {abi, evm: {bytecode: {object: bytecode}}}} = info;
 	abi = ethers.Interface.from(abi);
 	bytecode = '0x' + bytecode;
-	return {abi, bytecode, contract, origin: `InlineCode{${hash}}`, sol};
+	return {abi, bytecode, contract, origin, sol};
 }
 
 export class Foundry {
@@ -125,7 +140,8 @@ export class Foundry {
 		gasLimit,
 		blockSec,
 		autoclose = true,
-		fork, base,
+		fork, 
+		base, profile,
 		procLog,
 		infoLog = true,
 		...unknown
@@ -133,10 +149,26 @@ export class Foundry {
 		if (Object.keys(unknown).length) {
 			throw error_with('unknown options', unknown);
 		}
+		if (!base) base = this.base();
+		if (!profile) profile = this.profile();
+		let config;
+		try {
+			config = toml.parse(readFileSync(join(base, CONFIG_NAME), {encoding: 'utf8'}));
+		} catch (err) {
+			throw error_with(`invalid ${CONFIG_NAME}`, {base}, err);
+		}
+		config = config.profile[profile];
+		if (!config) throw error_with('unknown foundry profile', {profile});
+		// TODO: get default template
+		if (!config.src) config.src = 'src';
+		if (!config.out) config.out = 'out';
+		if (!config.remappings) config.remappings = [];
+
 		if (!infoLog) infoLog = undefined;
 		if (!procLog) procLog = undefined;
 		if (infoLog === true) infoLog = console.log.bind(console);
 		if (procLog === true) procLog = console.log.bind(console);
+
 		return new Promise((ful, rej) => {
 			let args = [
 				'--port', port,
@@ -202,11 +234,8 @@ export class Foundry {
 					provider.destroy();
 					provider = new ethers.WebSocketProvider(endpoint, chain, {staticNetwork: true, cacheTimeout: -1});
 				}
-				let self = Object.assign(new Foundry, {proc, provider, infoLog, procLog, endpoint, chain, port, automine, bin: {forge, anvil}});
+				let self = Object.assign(new Foundry, {proc, provider, infoLog, procLog, endpoint, chain, port, automine, base, config, bin: {forge, anvil}});
 				wallets = await Promise.all(wallets.map(x => self.ensureWallet(x)));
-				if (base) {
-					await self.ensureBuilt(base);
-				}
 				if (infoLog) {
 					const t = Date.now();
 					infoLog(TAG_START, self.pretty({chain, endpoint, wallets}));
@@ -222,17 +251,21 @@ export class Foundry {
 		this.error_map = new Map();
 		this.wallets = {};
 	}
-	async ensureBuilt(base) {
+	remappings() {
+		// TODO: figure out whatever bullshit foundry is using for "forge-std/console2.sol" => "lib/forge-std/src/console2.sol"
+		let {base, config} = this;
+		return [
+			['@src', join(base, config.src)],
+			...config.remappings.map(s => {
+				let [a, b] = s.split('=');
+				return [a, join(base, b)];
+			})
+		];
+	}
+	async ensureBuilt() {
 		if (this.built) return this.built;
-		if (!base) base = Foundry.base();
-		let config = toml.parse(readFileSync(join(base, CONFIG_NAME), {encoding: 'utf8'})); // throws
-		let profile = Foundry.profile();
-		config = config.profile[profile];
-		if (!config) throw error_with('unknown profile', {profile});
-		// TODO: get default template
-		if (!config.src) config.src = 'src';
-		if (!config.out) config.out = 'out';
 		// TODO fix me
+		// make it so this can be invalidated
 		try {
 			execSync(`${this.bin.forge} build`, {encoding: 'utf8'}); // throws
 		} catch (err) {
@@ -243,7 +276,7 @@ export class Foundry {
 			}
 			throw err;
 		}
-		return this.built = {config, base, profile};
+		return this.built = {date: new Date()};
 	}
 	async shutdown() {
 		return new Promise(ful => {
@@ -390,20 +423,17 @@ export class Foundry {
 		}
 	}	
 	async resolveArtifact(args) {
-		let {sol, bytecode, abi, file, contract} = args;
+		let {import: imported, sol, bytecode, abi, file, contract} = args;
+		if (imported) {
+			sol = `import "${imported}";`;
+			contract = remove_sol_ext(basename(imported));
+		}
 		if (sol) {
-			let opts = {contract, forge: this.bin.forge};
-			if (/^\s*import/m.test(sol)) { // TODO: this is hacky but useful
-				const {base, config} = await this.ensureBuilt();
-				opts.remap = [
-					`@src=${join(base, config.src)}`,
-					...(config.remappings ?? []).map(s => {
-						let [a, b] = s.split('=');
-						return `${a}=${join(base, b)}`;
-					})
-				];
-			}
-			return compile(sol, opts);
+			return compile(sol, {
+				contract, 
+				forge: this.bin.forge,
+				remap: this.remappings()
+			});
 		} else if (bytecode) {
 			if (!contract) contract = 'Unnamed';
 			abi = ethers.Interface.from(abi);
@@ -414,10 +444,11 @@ export class Foundry {
 		throw error_with('unknown artifact', args);
 	}
 	async fileArtifact(file, contract) {
-		file = file.replace(/\.sol$/, ''); // remove optional extension
+		await this.ensureBuilt();
+		file = remove_sol_ext(file); // remove optional extension
 		if (!contract) contract = basename(file); // derive contract name from file name
 		file += '.sol'; // add extension
-		const {base, config: {src, out}} = await this.ensureBuilt(); // compile project
+		const {base, config: {src, out}} = this; // compile project
 		let artifact_file = join(out, file, `${contract}.json`);
 		let {abi, bytecode: {object: bytecode}} = JSON.parse(await readFile(join(base, artifact_file)));
 		abi = ethers.Interface.from(abi);

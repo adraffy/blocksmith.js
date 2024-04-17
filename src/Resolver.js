@@ -3,7 +3,22 @@ import {ethers} from 'ethers';
 const IFACE_ENSIP_10 = '0x9061b923';
 const IFACE_TOR = '0x73302a25';
 
+const RESOLVER_ABI = new ethers.Interface([
+	'function supportsInterface(bytes4) view returns (bool)',
+	'function resolve(bytes name, bytes data) view returns (bytes)',
+	'function addr(bytes32 node, uint coinType) view returns (bytes)',
+	'function addr(bytes32 node) view returns (address)',
+	'function text(bytes32 node, string key) view returns (string)',
+	'function contenthash(bytes32 node) view returns (bytes)',
+	'function pubkey(bytes32 node) view returns (bytes32 x, bytes32 y)',
+	'function name(bytes32 node) view returns (string)',
+	'function multicall(bytes[] calldata data) external returns (bytes[] memory results)',
+]);
+
 export class Resolver {
+	static get ABI() {
+		return RESOLVER_ABI;
+	}
 	static async dump(ens, node) {
 		let nodes = node.flat();
 		let owners = await Promise.all(nodes.map(x => ens.owner(x.namehash)));
@@ -17,31 +32,19 @@ export class Resolver {
 		for (let base = node, drop = 0; base; base = base.parent, drop++) {
 			let resolver = await ens.resolver(base.namehash);
 			if (resolver === ethers.ZeroAddress) continue;
-			let contract = new ethers.Contract(resolver, [
-				'function supportsInterface(bytes4) view returns (bool)',
-				'function resolve(bytes name, bytes data) view returns (bytes)',
-				'function addr(bytes32 node, uint coinType) view returns (bytes)',
-				'function addr(bytes32 node) view returns (address)',
-				'function text(bytes32 node, string key) view returns (string)',
-				'function contenthash(bytes32 node) view returns (bytes)',
-				'function pubkey(bytes32 node) view returns (bytes32 x, bytes32 y)',
-				'function name(bytes32 node) view returns (string)',
-				'function multicall(bytes[] calldata data) external returns (bytes[] memory results)',
-			], ens.runner.provider);
-			let wild = await contract.supportsInterface(IFACE_ENSIP_10);
+			let contract = new ethers.Contract(resolver, RESOLVER_ABI, ens.runner.provider);
+			let wild = await contract.supportsInterface(IFACE_ENSIP_10).catch(() => false);
 			if (drop && !wild) break;
 			let tor = wild && await contract.supportsInterface(IFACE_TOR);
-			return new this(node, base, contract, {wild, drop, tor});
+			return Object.assign(new this(node, contract), {wild, tor, drop, base});
 		}
 	}
-	constructor(node, base, contract, info) {
+	constructor(node, contract) {
 		this.node = node;
-		this.base = base;
 		this.contract = contract;
-		this.info = info;
 	}
-	get address() { 
-		return this.contract.target; 
+	get address() {
+		return this.contract.target;
 	}
 	async text(key, a)   { return this.record({type: 'text', arg: key}, a); }
 	async addr(type, a)  { return this.record({type: 'addr', arg: type}, a); }
@@ -54,7 +57,7 @@ export class Resolver {
 	}
 	async records(recs, {multi = true, ccip = true, tor: tor_prefix} = {}) {
 		const options = {enableCcipRead: ccip};
-		const {node, info: {wild, tor}, contract} = this;
+		const {node, contract, wild, tor} = this;
 		const {interface: abi} = contract;
 		let dnsname = ethers.dnsEncode(node.name, 255);
 		if (multi && recs.length > 1 && wild && tor) {
@@ -121,7 +124,7 @@ export class Resolver {
 
 function type_from_record(rec) {
 	let {type, arg} = rec;
-	if (type === 'addr')  type = Number.isInteger(arg) ? 'addr(bytes32,uint256)' : 'addr(bytes32)';
+	if (type === 'addr') type = arg === undefined ? 'addr(bytes32)' : 'addr(bytes32,uint256)';
 	return type;
 }
 
