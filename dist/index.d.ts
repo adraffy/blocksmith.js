@@ -1,6 +1,6 @@
 import {
 	WebSocketProvider, BaseWallet, 
-	Contract, InterfaceAbi,
+	Contract, Interface,
 	TransactionReceipt, TransactionResponse, BigNumberish
 } from "ethers";
 import {ChildProcess} from "node:child_process";
@@ -14,7 +14,7 @@ type DeployedContract = Contract & {
 type PathLike = string | URL;
 type WalletLike = string | DevWallet;
 type BaseArtifact = {
-	abi: InterfaceAbi;
+	abi: Interface;
 	bytecode: string;
 	contract: string;
 	origin: string;
@@ -26,7 +26,7 @@ type ArtifactLike = {
 	import?: string;
 	sol?: string;
 	file?: string;
-	abi?: InterfaceAbi;
+	abi?: Interface;
 	bytecode?: string,
 	contract?: string;
 };
@@ -126,6 +126,7 @@ type TORPrefix =  'on' | 'off' | undefined;
 type RecordOptions = {multi?: boolean, ccip?: boolean, tor?: TORPrefix};
 
 export class Resolver {
+	static readonly ABI: Interface;
 	static get(ens: Contract, node: Node): Promise<Resolver | undefined>;
 
 	readonly node: Node;
