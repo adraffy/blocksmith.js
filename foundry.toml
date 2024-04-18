@@ -3,7 +3,3 @@
 [profile.default]
 src = "test"
 #out = "out"
-
-remappings = [
-	'forge-std/=/lib/forge-std/src/'
-]

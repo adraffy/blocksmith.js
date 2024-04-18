@@ -9,7 +9,7 @@ export class Node extends Map {
 		return new this(null, ethers.ZeroHash, '[root]');
 	}
 	static create(name) {
-		return this.root().create(name);
+		return name instanceof this ? name : this.root().create(name);
 	}
 	constructor(parent, namehash, label, labelhash) {
 		super();

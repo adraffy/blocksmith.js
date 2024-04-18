@@ -17,3 +17,5 @@ let contract = await foundry.deploy({sol: `
 `});
 
 await contract.f();
+
+foundry.shutdown();

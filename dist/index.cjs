@@ -6,7 +6,6 @@ var node_fs = require('node:fs');
 var promises = require('node:fs/promises');
 var node_path = require('node:path');
 var node_os = require('node:os');
-var toml = require('toml');
 var node_util = require('node:util');
 var node_console = require('node:console');
 
@@ -61,7 +60,7 @@ function ansi(c, s) {
 	return `\u001b[${c}m${s}\u001b[0m`;
 }
 function strip_ansi(s) {
-	return s.replaceAll(/[\u001b][^m]+m/g, '').split('\n');
+	return s.replaceAll(/[\u001b][^m]+m/g, ''); //.split('\n');
 }
 
 const TAG_START  =            'LAUNCH'; //ansi('34', 'LAUNCH');
@@ -71,6 +70,7 @@ const TAG_TX     = ansi('33', 'TX');
 const TAG_STOP   =            'STOP'; // ansi('34', '**STOP');
 
 const DEFAULT_WALLET = 'admin';
+const DEFAULT_PROFILE = 'default';
 
 const _OWNER = Symbol('blocksmith');
 const _NAME  = Symbol('blocksmith.name');
@@ -82,7 +82,28 @@ function take_hash(s) {
 	return s.slice(2, 10);
 }
 
-function compile(sol, {contract, forge = 'forge', remap = [], smart = true} = {}) {
+async function exec_json(cmd, args, env) {
+	return new Promise((ful, rej) => {
+		let proc = node_child_process.spawn(cmd, args, {encoding: 'utf8', env});
+		let stdout = '';
+		let stderr = '';
+		proc.stderr.on('data', chunk => stderr += chunk);
+		proc.stdout.on('data', chunk => stdout += chunk);
+		proc.on('exit', code => {
+			try {
+				if (!code) {
+					return ful(JSON.parse(stdout));
+				}
+			} catch (err) {
+			}
+			rej(error_with('expected JSON output', {code, error: strip_ansi(stderr), cmd, args}));
+		});
+	});
+}
+
+//export async function evaluate(`return (1)`, ['uint256']);
+
+function compile(sol, {contract, forge = 'forge', remap = [], smart = true, maxBuffer = 256 * 1024 * 1024} = {}) {
 	if (Array.isArray(sol)) {
 		sol = sol.join('\n');
 	}
@@ -106,14 +127,16 @@ function compile(sol, {contract, forge = 'forge', remap = [], smart = true} = {}
 	node_fs.mkdirSync(src, {recursive: true});
 	let file = node_path.join(src, `${contract}.sol`);
 	node_fs.writeFileSync(file, sol);
-	let cmd = `${forge} build --format-json --root ${root}`;
-	if (remap.length) {
-		cmd = `${cmd} ${remap.map(([a, b]) => `--remappings ${a}=${b}`).join(' ')}`;
-	}
-	let res = JSON.parse(node_child_process.execSync(cmd, {encoding: 'utf8'}));
-	let errors = res.errors.filter(x => x.severity!== 'warning');
+	let cmd = [
+		forge, 'build', 
+		'--format-json', 
+		'--root', root, 
+		...remap.map(([a, b]) => `--remappings ${a}=${b}`)
+	].join(' ');
+	let res = JSON.parse(node_child_process.execSync(cmd, {encoding: 'utf8', env: {...process.env, FOUNDRY_PROFILE: DEFAULT_PROFILE, maxBuffer}}));
+	let errors = filter_errors(res.errors);
 	if (errors.length) {
-		throw error_with('compile error', {sol, errors});
+		throw error_with('forge build', {sol, errors});
 	}
 	let info = res.contracts[file]?.[contract]?.[0];
 	let origin = `InlineCode{${hash}}`;
@@ -138,9 +161,9 @@ function compile(sol, {contract, forge = 'forge', remap = [], smart = true} = {}
 
 class Foundry {
 	static profile() {
-		return process.env.FOUNDRY_PROFILE ?? 'default';
+		return process.env.FOUNDRY_PROFILE ?? DEFAULT_PROFILE;
 	}
-	static base(cwd) {
+	static root(cwd) {
 		let dir = cwd || process.cwd();
 		while (true) {
 			let file = node_path.join(dir, 'foundry.toml');
@@ -165,7 +188,7 @@ class Foundry {
 		blockSec,
 		autoclose = true,
 		fork, 
-		base, profile,
+		root, profile,
 		procLog,
 		infoLog = true,
 		...unknown
@@ -173,20 +196,15 @@ class Foundry {
 		if (Object.keys(unknown).length) {
 			throw error_with('unknown options', unknown);
 		}
-		if (!base) base = this.base();
+		if (!root) root = this.root();
+		root = node_fs.realpathSync(root);
 		if (!profile) profile = this.profile();
 		let config;
 		try {
-			config = toml.parse(node_fs.readFileSync(node_path.join(base, CONFIG_NAME), {encoding: 'utf8'}));
+			config = await exec_json(forge, ['config', '--json', '--root', root], {...process.env, FOUNDRY_PROFILE: profile});
 		} catch (err) {
-			throw error_with(`invalid ${CONFIG_NAME}`, {base}, err);
+			throw error_with(`invalid ${CONFIG_NAME}`, {root, profile}, err);
 		}
-		config = config.profile[profile];
-		if (!config) throw error_with('unknown foundry profile', {profile});
-		// TODO: get default template
-		if (!config.src) config.src = 'src';
-		if (!config.out) config.out = 'out';
-		if (!config.remappings) config.remappings = [];
 
 		if (!infoLog) infoLog = undefined;
 		if (!procLog) procLog = undefined;
@@ -258,7 +276,7 @@ class Foundry {
 					provider.destroy();
 					provider = new ethers.ethers.WebSocketProvider(endpoint, chain, {staticNetwork: true, cacheTimeout: -1});
 				}
-				let self = Object.assign(new Foundry, {proc, provider, infoLog, procLog, endpoint, chain, port, automine, base, config, bin: {forge, anvil}});
+				let self = Object.assign(new Foundry, {proc, provider, infoLog, procLog, endpoint, chain, port, automine, root, profile, config, bin: {forge, anvil}});
 				wallets = await Promise.all(wallets.map(x => self.ensureWallet(x)));
 				if (infoLog) {
 					const t = Date.now();
@@ -275,31 +293,14 @@ class Foundry {
 		this.error_map = new Map();
 		this.wallets = {};
 	}
-	remappings() {
-		// TODO: figure out whatever bullshit foundry is using for "forge-std/console2.sol" => "lib/forge-std/src/console2.sol"
-		let {base, config} = this;
-		return [
-			['@src', node_path.join(base, config.src)],
-			...config.remappings.map(s => {
-				let [a, b] = s.split('=');
-				return [a, node_path.join(base, b)];
-			})
-		];
-	}
-	async ensureBuilt() {
-		if (this.built) return this.built;
-		// TODO fix me
-		// make it so this can be invalidated
-		try {
-			node_child_process.execSync(`${this.bin.forge} build`, {encoding: 'utf8'}); // throws
-		} catch (err) {
-			if (err.stderr) {
-				err.stderr = strip_ansi(err.stderr);
-				delete err.stdout;
-				delete err.output;
-			}
-			throw err;
+	async build(force) {
+		if (!force && this.built) return this.built;
+		let res = await exec_json(this.bin.forge, ['build', '--format-json', '--root', this.root], {...process.env, FOUNDRY_PROFILE: this.profile});
+		let errors = filter_errors(res.errors);
+		if (errors.length) {
+			throw error_with('forge build', {errors});
 		}
+		//let contracts = Object.values(res.contracts).flatMap(v => Object.keys(v));
 		return this.built = {date: new Date()};
 	}
 	async shutdown() {
@@ -453,10 +454,18 @@ class Foundry {
 			contract = remove_sol_ext(node_path.basename(imported));
 		}
 		if (sol) {
+			let {root, config} = this;
+			let remap = [
+				['@src', node_path.join(root, config.src)],
+				...config.remappings.map(s => {
+					let [a, b] = s.split('=');
+					return [a, node_path.join(root, b)];
+				})
+			];
 			return compile(sol, {
 				contract, 
 				forge: this.bin.forge,
-				remap: this.remappings()
+				remap
 			});
 		} else if (bytecode) {
 			if (!contract) contract = 'Unnamed';
@@ -468,17 +477,17 @@ class Foundry {
 		throw error_with('unknown artifact', args);
 	}
 	async fileArtifact(file, contract) {
-		await this.ensureBuilt();
+		await this.build();
 		file = remove_sol_ext(file); // remove optional extension
 		if (!contract) contract = node_path.basename(file); // derive contract name from file name
 		file += '.sol'; // add extension
-		const {base, config: {src, out}} = this; // compile project
+		const {root, config: {src, out}} = this; // compile project
 		let artifact_file = node_path.join(out, file, `${contract}.json`);
-		let {abi, bytecode: {object: bytecode}} = JSON.parse(await promises.readFile(node_path.join(base, artifact_file)));
+		let {abi, bytecode: {object: bytecode}} = JSON.parse(await promises.readFile(node_path.join(root, artifact_file)));
 		abi = ethers.ethers.Interface.from(abi);
 		return {abi, bytecode, contract,
 			origin: node_path.join(src, file), // relative
-			file: node_path.join(base, src, file) // absolute
+			file: node_path.join(root, src, file) // absolute
 		};
 	}
 	async deploy({from, args = [], ...artifactLike}) {
@@ -515,6 +524,10 @@ class Foundry {
 	}
 }
 
+function filter_errors(errors) {
+	return errors.filter(x => x.severity === 'error');
+}
+
 function split(s) {
 	return s ? s.split('.') : [];
 }
@@ -524,7 +537,7 @@ class Node extends Map {
 		return new this(null, ethers.ethers.ZeroHash, '[root]');
 	}
 	static create(name) {
-		return this.root().create(name);
+		return name instanceof this ? name : this.root().create(name);
 	}
 	constructor(parent, namehash, label, labelhash) {
 		super();
@@ -601,6 +614,8 @@ class Node extends Map {
 	}
 }
 
+//import {Node} from './Node.js';
+
 const IFACE_ENSIP_10 = '0x9061b923';
 const IFACE_TOR = '0x73302a25';
 
@@ -615,6 +630,16 @@ const RESOLVER_ABI = new ethers.ethers.Interface([
 	'function name(bytes32 node) view returns (string)',
 	'function multicall(bytes[] calldata data) external returns (bytes[] memory results)',
 ]);
+
+const DEFAULT_RECORDS = [
+	{type: 'text', arg: 'name'},
+	{type: 'text', arg: 'avatar'},
+	{type: 'text', arg: 'description'},
+	{type: 'text', arg: 'url'},
+	{type: 'addr', arg: 60},
+	{type: 'addr', arg: 0},
+	{type: 'contenthash'},
+];
 
 class Resolver {
 	static get ABI() {
@@ -707,16 +732,8 @@ class Resolver {
 			}
 		}))];
 	}
-	async profile(a) {
-		let [v, multi] = await this.records([
-			{type: 'text', arg: 'name'},
-			{type: 'text', arg: 'avatar'},
-			{type: 'text', arg: 'description'},
-			{type: 'text', arg: 'url'},
-			{type: 'addr', arg: 60},
-			{type: 'addr', arg: 0},
-			{type: 'contenthash'},
-		], a);
+	async profile(records = DEFAULT_RECORDS, a) {
+		let [v, multi] = await this.records(records, a);
 		let obj = Object.fromEntries(v.map(({rec, res, err}) => [key_from_record(rec), err ?? res]));
 		if (multi) obj.multicalled = true;
 		return obj;
@@ -732,7 +749,7 @@ function type_from_record(rec) {
 function key_from_record(rec) {
 	let {type, arg} = rec;
 	switch (type) {
-		case 'addr': return `addr${arg ?? 60}`;
+		case 'addr': return `addr${arg ?? ''}`;
 		case 'text': return arg;
 		default: return type;
 	}

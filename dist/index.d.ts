@@ -36,6 +36,9 @@ type ToConsoleLog = boolean | PathLike | ((line: string) => any);
 type WalletOptions = {
 	ether: BigNumberish;	
 };
+type BuildInfo = {
+	date: Date;
+};
 export class Foundry {
 	static base(dir?: PathLike): string;
 	static profile(): string;
@@ -50,7 +53,7 @@ export class Foundry {
 		infoLog?: ToConsoleLog, // default: off
 		procLog?: ToConsoleLog; // default: console.log()
 		fork?: PathLike;
-		base?: PathLike; // default: ancestor w/foundry.toml
+		root?: PathLike; // default: ancestor w/foundry.toml
 		profile?: string; // default: "default"
 	}): Promise<Foundry>;
 
@@ -62,7 +65,7 @@ export class Foundry {
 	readonly chain: number;
 	readonly port: number;
 	readonly automine: boolean;
-	readonly base: string;
+	readonly root: string;
 	readonly profile: string;
 	readonly config: {
 		src: string;
@@ -82,6 +85,8 @@ export class Foundry {
 
 	resolveArtifact(artifact: ArtifactLike): Promise<Artifact>;
 
+	build(force?: boolean): Promise<BuildInfo>;
+
 	// compile and deploy a contract, returns Contract with ABI
 	deploy<P>(options: {
 		from?: WalletLike;
@@ -97,6 +102,7 @@ export class Foundry {
 
 export class Node extends Map {
 	static root(): Node;
+	static create(name: string | Node): Node;
 
 	readonly parent: Node;
 	readonly nodehash: string;
@@ -129,6 +135,8 @@ export class Resolver {
 	static readonly ABI: Interface;
 	static get(ens: Contract, node: Node): Promise<Resolver | undefined>;
 
+	constructor(node: Node, contract: Contract);
+
 	readonly node: Node;
 	readonly contract: Contract;
 	
@@ -144,6 +152,8 @@ export class Resolver {
 	contenthash(options?: RecordOptions): Promise<string>;
 	record(rec: RecordQuery, options?: RecordOptions): Promise<any>;
 	records(rec: RecordQuery[], options?: RecordOptions): Promise<RecordResult[]>;
+	profile(rec?: RecordQuery[], options?: RecordOptions): Promise<{[key: string]: any}>;
+
 }
 
 export function error_with(message: string, options: Object, cause?: any): Error;

@@ -1,4 +1,5 @@
 import {ethers} from 'ethers';
+//import {Node} from './Node.js';
 
 const IFACE_ENSIP_10 = '0x9061b923';
 const IFACE_TOR = '0x73302a25';
@@ -14,6 +15,16 @@ const RESOLVER_ABI = new ethers.Interface([
 	'function name(bytes32 node) view returns (string)',
 	'function multicall(bytes[] calldata data) external returns (bytes[] memory results)',
 ]);
+
+const DEFAULT_RECORDS = [
+	{type: 'text', arg: 'name'},
+	{type: 'text', arg: 'avatar'},
+	{type: 'text', arg: 'description'},
+	{type: 'text', arg: 'url'},
+	{type: 'addr', arg: 60},
+	{type: 'addr', arg: 0},
+	{type: 'contenthash'},
+];
 
 export class Resolver {
 	static get ABI() {
@@ -106,16 +117,8 @@ export class Resolver {
 			}
 		}))];
 	}
-	async profile(a) {
-		let [v, multi] = await this.records([
-			{type: 'text', arg: 'name'},
-			{type: 'text', arg: 'avatar'},
-			{type: 'text', arg: 'description'},
-			{type: 'text', arg: 'url'},
-			{type: 'addr', arg: 60},
-			{type: 'addr', arg: 0},
-			{type: 'contenthash'},
-		], a);
+	async profile(records = DEFAULT_RECORDS, a) {
+		let [v, multi] = await this.records(records, a);
 		let obj = Object.fromEntries(v.map(({rec, res, err}) => [key_from_record(rec), err ?? res]));
 		if (multi) obj.multicalled = true;
 		return obj;
@@ -131,7 +134,7 @@ function type_from_record(rec) {
 function key_from_record(rec) {
 	let {type, arg} = rec;
 	switch (type) {
-		case 'addr': return `addr${arg ?? 60}`;
+		case 'addr': return `addr${arg ?? ''}`;
 		case 'text': return arg;
 		default: return type;
 	}
