@@ -479,14 +479,31 @@ class Foundry {
 		file = remove_sol_ext(file); // remove optional extension
 		if (!contract) contract = basename(file); // derive contract name from file name
 		file += '.sol'; // add extension
-		const {root, config: {src, out}} = this; // compile project
-		let artifact_file = join(out, file, `${contract}.json`);
-		let {abi, bytecode: {object: bytecode}} = JSON.parse(await readFile(join(root, artifact_file)));
+		const {root, config: {out}} = this; // compile project
+		let artifact;
+		let file_name = join(basename(file), `${contract}.json`);
+		let path = dirname(file);
+		while (true) {
+			let artifact_file = join(out, path, file_name);
+			try {
+				artifact = await readFile(join(root, artifact_file));
+				break;
+			} catch (err) {
+				let parent = dirname(path);
+				if (parent === path) throw error_with('unknown contract', {file, contract});
+				path = parent;
+			}
+		}
+		//let artifact_file = join(out, file, `${contract}.json`);
+		//let {abi, bytecode: {object: bytecode}} = JSON.parse(await readFile(join(root, artifact_file)));
+		let {
+			abi,
+			bytecode: {object: bytecode},
+			metadata: {settings: {compilationTarget}}
+		} = JSON.parse(artifact);
+		let [origin] = Object.keys(compilationTarget); // TODO: is this correct?
 		abi = ethers.Interface.from(abi);
-		return {abi, bytecode, contract,
-			origin: join(src, file), // relative
-			file: join(root, src, file) // absolute
-		};
+		return {abi, bytecode, contract, origin, file: join(root, origin)};
 	}
 	async deploy({from, args = [], ...artifactLike}) {
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);

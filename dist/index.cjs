@@ -481,14 +481,31 @@ class Foundry {
 		file = remove_sol_ext(file); // remove optional extension
 		if (!contract) contract = node_path.basename(file); // derive contract name from file name
 		file += '.sol'; // add extension
-		const {root, config: {src, out}} = this; // compile project
-		let artifact_file = node_path.join(out, file, `${contract}.json`);
-		let {abi, bytecode: {object: bytecode}} = JSON.parse(await promises.readFile(node_path.join(root, artifact_file)));
+		const {root, config: {out}} = this; // compile project
+		let artifact;
+		let file_name = node_path.join(node_path.basename(file), `${contract}.json`);
+		let path = node_path.dirname(file);
+		while (true) {
+			let artifact_file = node_path.join(out, path, file_name);
+			try {
+				artifact = await promises.readFile(node_path.join(root, artifact_file));
+				break;
+			} catch (err) {
+				let parent = node_path.dirname(path);
+				if (parent === path) throw error_with('unknown contract', {file, contract});
+				path = parent;
+			}
+		}
+		//let artifact_file = join(out, file, `${contract}.json`);
+		//let {abi, bytecode: {object: bytecode}} = JSON.parse(await readFile(join(root, artifact_file)));
+		let {
+			abi,
+			bytecode: {object: bytecode},
+			metadata: {settings: {compilationTarget}}
+		} = JSON.parse(artifact);
+		let [origin] = Object.keys(compilationTarget); // TODO: is this correct?
 		abi = ethers.ethers.Interface.from(abi);
-		return {abi, bytecode, contract,
-			origin: node_path.join(src, file), // relative
-			file: node_path.join(root, src, file) // absolute
-		};
+		return {abi, bytecode, contract, origin, file: node_path.join(root, origin)};
 	}
 	async deploy({from, args = [], ...artifactLike}) {
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);
