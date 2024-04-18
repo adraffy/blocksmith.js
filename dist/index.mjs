@@ -50,7 +50,7 @@ function remove_sol_ext(s) {
 	return s.replace(/\.sol$/, '');
 }
 
-const TMP_DIR = realpathSync(join(tmpdir(), 'blocksmith'));
+const TMP_DIR = join(realpathSync(tmpdir()), 'blocksmith');
 
 const CONFIG_NAME = 'foundry.toml';
 
