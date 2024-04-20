@@ -1,7 +1,7 @@
 import {spawn} from 'node:child_process';
 import {ethers} from 'ethers';
-import {createWriteStream, accessSync, realpathSync} from 'node:fs';
-import {readFile, writeFile, copyFile, rm, mkdir} from 'node:fs/promises';
+import {createWriteStream} from 'node:fs';
+import {readFile, writeFile, copyFile, rm, mkdir, access, realpath} from 'node:fs/promises';
 import {join, dirname, basename} from 'node:path';
 import {tmpdir} from 'node:os';
 import {error_with, is_address, to_address} from './utils.js';
@@ -27,8 +27,6 @@ function is_pathlike(x) {
 function remove_sol_ext(s) {
 	return s.replace(/\.sol$/, '');
 }
-
-const TMP_DIR = join(realpathSync(tmpdir()), 'blocksmith');
 
 const CONFIG_NAME = 'foundry.toml';
 
@@ -97,8 +95,8 @@ export async function compile(sol, {contract, foundry, smart = true} = {}) {
 		}
 	}
 
-	let hash = take_hash(ethers.id(sol));
-	let root = join(TMP_DIR, hash);
+	let hash = take_hash(ethers.id(sol)); // TODO should this be more random
+	let root = join(await realpath(tmpdir()), 'blocksmith', hash);
 	
 	await rm(root, {recursive: true, force: true});
 	
@@ -112,7 +110,7 @@ export async function compile(sol, {contract, foundry, smart = true} = {}) {
 		'--format-json',
 		'--root', root,
 	];
-	let env = {...process.env};	
+	let env = {...process.env, FOUNDRY_PROFILE: foundry?.profile ?? DEFAULT_PROFILE};
 	if (foundry) {
 		let remappings = [
 			['@src', foundry.config.src],
@@ -121,13 +119,10 @@ export async function compile(sol, {contract, foundry, smart = true} = {}) {
 		for (let [a, b] of remappings) {
 			args.push('-R', `${a}=${join(foundry.root, b)}`); // --remappings
 		}
-		env.FOUNDRY_PROFILE = foundry.profile;
 		await copyFile(join(foundry.root, CONFIG_NAME), join(root, CONFIG_NAME));
-	} else {
-		env.FOUNDRY_PROFILE = DEFAULT_PROFILE;
 	}
 
-	let res = await exec_json(foundry?.bin.forge ?? 'forge', args, env);
+	let res = await exec_json(foundry?.forge ?? 'forge', args, env);
 	let errors = filter_errors(res.errors);
 	if (errors.length) {
 		throw error_with('forge build', {sol, errors});
@@ -153,16 +148,16 @@ export async function compile(sol, {contract, foundry, smart = true} = {}) {
 	return {abi, bytecode, contract, origin, sol};
 }
 
-export class Foundry {
+export class FoundryBase {
 	static profile() {
 		return process.env.FOUNDRY_PROFILE ?? DEFAULT_PROFILE;
 	}
-	static root(cwd) {
+	static async root(cwd) {
 		let dir = cwd || process.cwd();
 		while (true) {
 			let file = join(dir, 'foundry.toml');
 			try {
-				accessSync(file);
+				await access(file);
 				return dir;
 			} catch {
 			}
@@ -171,27 +166,12 @@ export class Foundry {
 			dir = parent;
 		}
 	}
-	static async launch({
-		port = 0,
-		wallets = [DEFAULT_WALLET],
-		anvil = 'anvil',
-		forge = 'forge',
-		chain,
-		infiniteCallGas,
-		gasLimit,
-		blockSec,
-		autoclose = true,
-		fork, 
-		root, profile,
-		procLog,
-		infoLog = true,
-		...unknown
-	} = {}) {
+	static async load({root, profile, forge = 'forge', ...unknown} = {}) {
 		if (Object.keys(unknown).length) {
 			throw error_with('unknown options', unknown);
 		}
-		if (!root) root = this.root();
-		root = realpathSync(root);
+		if (!root) root = await this.root();
+		//root = await realpath(root); // do i need this?
 		if (!profile) profile = this.profile();
 		let config;
 		try {
@@ -199,6 +179,56 @@ export class Foundry {
 		} catch (err) {
 			throw error_with(`invalid ${CONFIG_NAME}`, {root, profile}, err);
 		}
+		return Object.assign(new this, {root, profile, config, forge});
+	}
+	async build(force) {
+		if (!force && this.built) return this.built;
+		let args = ['build', '--format-json', '--root', this.root];
+		if (force) args.push('--force');
+		let res = await exec_json(this.forge, args, {...process.env, FOUNDRY_PROFILE: this.profile});
+		let errors = filter_errors(res.errors);
+		if (errors.length) {
+			throw error_with('forge build', {errors});
+		}
+		//let contracts = Object.values(res.contracts).flatMap(v => Object.keys(v));
+		return this.built = {date: new Date()};
+	}
+	async find({file, contract}) {
+		file = remove_sol_ext(file); // remove optional extension
+		if (!contract) contract = basename(file); // derive contract name from file name
+		file += '.sol'; // add extension
+		let tail = join(basename(file), `${contract}.json`);
+		let path = dirname(file);
+		while (true) {
+			try {
+				let out_file = join(this.root, this.config.out, path, tail);
+				await access(out_file);
+				return out_file;
+			} catch (err) {
+				let parent = dirname(path);
+				if (parent === path) throw error_with('unknown contract', {file, contract});
+				path = parent;
+			}
+		}
+	}
+}
+
+export class Foundry extends FoundryBase {
+	static async launch({
+		port = 0,
+		wallets = [DEFAULT_WALLET],
+		anvil = 'anvil',
+		chain,
+		infiniteCallGas,
+		gasLimit,
+		blockSec,
+		autoclose = true,
+		fork, 
+		procLog,
+		infoLog = true,
+		...rest
+	} = {}) {
+		let self = await this.load(rest);
 
 		if (!infoLog) infoLog = undefined;
 		if (!procLog) procLog = undefined;
@@ -270,7 +300,7 @@ export class Foundry {
 					provider.destroy();
 					provider = new ethers.WebSocketProvider(endpoint, chain, {staticNetwork: true, cacheTimeout: -1});
 				}
-				let self = Object.assign(new Foundry, {proc, provider, infoLog, procLog, endpoint, chain, port, automine, root, profile, config, bin: {forge, anvil}});
+				Object.assign(self, {proc, provider, infoLog, procLog, endpoint, chain, port, automine, anvil});
 				wallets = await Promise.all(wallets.map(x => self.ensureWallet(x)));
 				if (infoLog) {
 					const t = Date.now();
@@ -282,20 +312,11 @@ export class Foundry {
 		});
 	}
 	constructor() {
+		super();
 		this.accounts = new Map();
 		this.event_map = new Map();
 		this.error_map = new Map();
 		this.wallets = {};
-	}
-	async build(force) {
-		if (!force && this.built) return this.built;
-		let res = await exec_json(this.bin.forge, ['build', '--format-json', '--root', this.root], {...process.env, FOUNDRY_PROFILE: this.profile});
-		let errors = filter_errors(res.errors);
-		if (errors.length) {
-			throw error_with('forge build', {errors});
-		}
-		//let contracts = Object.values(res.contracts).flatMap(v => Object.keys(v));
-		return this.built = {date: new Date()};
 	}
 	async shutdown() {
 		return new Promise(ful => {
@@ -448,69 +469,30 @@ export class Foundry {
 			contract = remove_sol_ext(basename(imported));
 		}
 		if (sol) {
-			/*
-			let {root, config} = this;
-			let remap = [
-				['@src', join(root, config.src)],
-				...config.remappings.map(s => {
-					let [a, b] = s.split('=');
-					return [a, join(root, b)];
-				})
-			];
-		
-			forge: this.bin.forge,
-			remap,
-			profile: this.profile,
-			config_file: join(root, CONFIG_NAME)
-			*/
-		
-			return compile(sol, {
-				contract,
-				foundry: this
-			});
+			// TODO: should this be .compile?
+			return compile(sol, {contract, foundry: this});
 		} else if (bytecode) {
 			if (!contract) contract = 'Unnamed';
 			abi = ethers.Interface.from(abi);
 			return {abi, bytecode, contract, origin: 'Bytecode'}
 		} else if (file) {
-			return this.fileArtifact(file, contract);
+			return this.fileArtifact({file, contract});
 		}
 		throw error_with('unknown artifact', args);
 	}
-	async fileArtifact(file, contract) {
+	async fileArtifact(args) {
 		await this.build();
-		file = remove_sol_ext(file); // remove optional extension
-		if (!contract) contract = basename(file); // derive contract name from file name
-		file += '.sol'; // add extension
-		const {root, config: {out}} = this; // compile project
-		let artifact;
-		let file_name = join(basename(file), `${contract}.json`);
-		let path = dirname(file);
-		while (true) {
-			let artifact_file = join(out, path, file_name);
-			try {
-				artifact = await readFile(join(root, artifact_file));
-				break;
-			} catch (err) {
-				let parent = dirname(path);
-				if (parent === path) throw error_with('unknown contract', {file, contract});
-				path = parent;
-			}
-		}
-		//let artifact_file = join(out, file, `${contract}.json`);
-		//let {abi, bytecode: {object: bytecode}} = JSON.parse(await readFile(join(root, artifact_file)));
-		let {
-			abi,
-			bytecode: {object: bytecode},
-			metadata: {settings: {compilationTarget}}
-		} = JSON.parse(artifact);
-		let [origin] = Object.keys(compilationTarget); // TODO: is this correct?
-		abi = ethers.Interface.from(abi);
-		return {abi, bytecode, contract, origin, file: join(root, origin)};
+		let file = await this.find(args);
+		let artifact = JSON.parse(await readFile(file));
+		let [origin, contract] = Object.entries(artifact.metadata.settings.compilationTarget)[0]; // TODO: is this correct?
+		let bytecode = artifact.bytecode.object;
+		let abi = ethers.Interface.from(artifact.abi);
+		return {abi, bytecode, contract, origin, file};
 	}
-	async deployed({at, ...artifactLike}) {
+	async deployed({from, at, ...artifactLike}) {
+		let w = await this.ensureWallet(from || DEFAULT_WALLET);
 		let {abi, ...artifact} = await this.resolveArtifact(artifactLike);
-		let c = new ethers.Contract(at, abi, this.provider);
+		let c = new ethers.Contract(at, abi, w);
 		c[_NAME] = `${artifact.contract}<${take_hash(c.target)}>`; 
 		c[_OWNER] = this;
 		c.toString = get_NAME;
@@ -523,7 +505,22 @@ export class Foundry {
 		let {abi, bytecode, ...artifact} = await this.resolveArtifact(artifactLike);
 		bytecode = ethers.getBytes(bytecode);
 		if (!bytecode.length) throw error_with('no bytecode', artifact);
-		abi.forEachEvent(e => this.event_map.set(e.topicHash, abi)); // remember
+		let factory = new ethers.ContractFactory(abi, bytecode, w);
+		let unsigned = await factory.getDeployTransaction(...args);
+		let tx = await w.sendTransaction(unsigned);
+		let receipt = await tx.wait();
+
+		let c = new ethers.Contract(receipt.contractAddress, abi, w);
+		c[_NAME] = `${artifact.contract}<${take_hash(c.target)}>`; // so we can deploy the same contract multiple times
+		c[_OWNER] = this;
+		c.toString = get_NAME;
+		c.__artifact = artifact; // TODO: stick .code in here?
+		c.__receipt = receipt;
+
+		let code = ethers.getBytes(await this.provider.getCode(c.target));
+
+		this.accounts.set(c.target, c);
+		abi.forEachEvent(e => this.event_map.set(e.topicHash, abi));
 		abi.forEachError(e => {
 			let bucket = this.error_map.get(e.selector);
 			if (!bucket) {
@@ -532,19 +529,7 @@ export class Foundry {
 			}
 			bucket.set(ethers.id(e.format('sighash')), abi);
 		});
-		let factory = new ethers.ContractFactory(abi, bytecode, w);
-		let unsigned = await factory.getDeployTransaction(...args);
-		let tx = await w.sendTransaction(unsigned);
-		let receipt = await tx.wait();
-		let {contractAddress: address} = receipt;
-		let code = ethers.getBytes(await this.provider.getCode(address));
-		let c = new ethers.Contract(address, abi, w);
-		c[_NAME] = `${artifact.contract}<${take_hash(address)}>`; // so we can deploy the same contract multiple times
-		c[_OWNER] = this;
-		c.toString = get_NAME;
-		c.__artifact = artifact; // TODO: stick .code in here?
-		c.__receipt = tx;
-		this.accounts.set(address, c); // remember
+
 		this.infoLog?.(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), `${ansi('33', receipt.gasUsed)}gas ${ansi('33', code.length)}bytes`); // {address, gas: receipt.gasUsed, size: code.length});
 		this._dump_logs(abi, receipt);
 		return c;
