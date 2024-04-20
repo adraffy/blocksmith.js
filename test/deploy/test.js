@@ -1,4 +1,4 @@
-import {Foundry, compile as solc} from '../../src/index.js';
+import {Foundry, compile} from '../../src/index.js';
 import {test, after} from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -46,7 +46,7 @@ test('deploy w/import', async () => {
 });
 
 test('solc tagged template', async () => {
-	let {bytecode} = solc`
+	let {bytecode} = await compile`
 		contract Chonk {
 			function f() external pure returns (string memory) {
 				return 'chonk';

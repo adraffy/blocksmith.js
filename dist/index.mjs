@@ -1,7 +1,7 @@
-import { execSync, spawn } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { ethers } from 'ethers';
-import { realpathSync, rmSync, mkdirSync, writeFileSync, accessSync, createWriteStream } from 'node:fs';
-import { readFile } from 'node:fs/promises';
+import { realpathSync, accessSync, createWriteStream } from 'node:fs';
+import { rm, mkdir, writeFile, copyFile, readFile } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
 import { tmpdir } from 'node:os';
 import { inspect } from 'node:util';
@@ -101,7 +101,7 @@ async function exec_json(cmd, args, env) {
 
 //export async function evaluate(`return (1)`, ['uint256']);
 
-function compile(sol, {contract, forge = 'forge', remap = [], smart = true, maxBuffer = 256 * 1024 * 1024} = {}) {
+async function compile(sol, {contract, foundry, smart = true} = {}) {
 	if (Array.isArray(sol)) {
 		sol = sol.join('\n');
 	}
@@ -118,20 +118,38 @@ function compile(sol, {contract, forge = 'forge', remap = [], smart = true, maxB
 			sol = `// SPDX-License-Identifier: UNLICENSED\n${sol}`;
 		}
 	}
+
 	let hash = take_hash(ethers.id(sol));
 	let root = join(TMP_DIR, hash);
-	rmSync(root, {recursive: true, force: true});
-	let src = join(root, 'src');
-	mkdirSync(src, {recursive: true});
+	
+	await rm(root, {recursive: true, force: true});
+	
+	let src = join(root, foundry?.config.src ?? 'src');
+	await mkdir(src, {recursive: true});
 	let file = join(src, `${contract}.sol`);
-	writeFileSync(file, sol);
-	let cmd = [
-		forge, 'build', 
-		'--format-json', 
-		'--root', root, 
-		...remap.map(([a, b]) => `--remappings ${a}=${b}`)
-	].join(' ');
-	let res = JSON.parse(execSync(cmd, {encoding: 'utf8', env: {...process.env, FOUNDRY_PROFILE: DEFAULT_PROFILE, maxBuffer}}));
+	await writeFile(file, sol);
+
+	let args = [
+		'build',
+		'--format-json',
+		'--root', root,
+	];
+	let env = {...process.env};	
+	if (foundry) {
+		let remappings = [
+			['@src', foundry.config.src],
+			...foundry.config.remappings.map(s => s.split('='))
+		];
+		for (let [a, b] of remappings) {
+			args.push('-R', `${a}=${join(foundry.root, b)}`); // --remappings
+		}
+		env.FOUNDRY_PROFILE = foundry.profile;
+		await copyFile(join(foundry.root, CONFIG_NAME), join(root, CONFIG_NAME));
+	} else {
+		env.FOUNDRY_PROFILE = DEFAULT_PROFILE;
+	}
+
+	let res = await exec_json(foundry?.bin.forge ?? 'forge', args, env);
 	let errors = filter_errors(res.errors);
 	if (errors.length) {
 		throw error_with('forge build', {sol, errors});
@@ -452,6 +470,7 @@ class Foundry {
 			contract = remove_sol_ext(basename(imported));
 		}
 		if (sol) {
+			/*
 			let {root, config} = this;
 			let remap = [
 				['@src', join(root, config.src)],
@@ -460,10 +479,16 @@ class Foundry {
 					return [a, join(root, b)];
 				})
 			];
+		
+			forge: this.bin.forge,
+			remap,
+			profile: this.profile,
+			config_file: join(root, CONFIG_NAME)
+			*/
+		
 			return compile(sol, {
-				contract, 
-				forge: this.bin.forge,
-				remap
+				contract,
+				foundry: this
 			});
 		} else if (bytecode) {
 			if (!contract) contract = 'Unnamed';
@@ -505,6 +530,16 @@ class Foundry {
 		abi = ethers.Interface.from(abi);
 		return {abi, bytecode, contract, origin, file: join(root, origin)};
 	}
+	async deployed({at, ...artifactLike}) {
+		let {abi, ...artifact} = await this.resolveArtifact(artifactLike);
+		let c = new ethers.Contract(at, abi, this.provider);
+		c[_NAME] = `${artifact.contract}<${take_hash(c.target)}>`; 
+		c[_OWNER] = this;
+		c.toString = get_NAME;
+		c.__artifact = artifact;
+		this.accounts.set(c.target, c);
+		return c;
+	}
 	async deploy({from, args = [], ...artifactLike}) {
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);
 		let {abi, bytecode, ...artifact} = await this.resolveArtifact(artifactLike);
@@ -519,7 +554,6 @@ class Foundry {
 			}
 			bucket.set(ethers.id(e.format('sighash')), abi);
 		});
-		let {contract} = artifact;
 		let factory = new ethers.ContractFactory(abi, bytecode, w);
 		let unsigned = await factory.getDeployTransaction(...args);
 		let tx = await w.sendTransaction(unsigned);
@@ -527,10 +561,10 @@ class Foundry {
 		let {contractAddress: address} = receipt;
 		let code = ethers.getBytes(await this.provider.getCode(address));
 		let c = new ethers.Contract(address, abi, w);
-		c[_NAME] = `${contract}<${take_hash(address)}>`; // so we can deploy the same contract multiple times
+		c[_NAME] = `${artifact.contract}<${take_hash(address)}>`; // so we can deploy the same contract multiple times
 		c[_OWNER] = this;
 		c.toString = get_NAME;
-		c.__artifact = artifact;
+		c.__artifact = artifact; // TODO: stick .code in here?
 		c.__receipt = tx;
 		this.accounts.set(address, c); // remember
 		this.infoLog?.(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), `${ansi('33', receipt.gasUsed)}gas ${ansi('33', code.length)}bytes`); // {address, gas: receipt.gasUsed, size: code.length});

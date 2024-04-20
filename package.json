@@ -1,6 +1,6 @@
 {
 	"name": "@adraffy/blocksmith",
-	"version": "0.0.17",
+	"version": "0.0.18",
 	"description": "Minimal Ethereum Testing Framework for Foundry + ethers",
 	"type": "module",
 	"types": "./dist/index.d.ts",
@@ -32,9 +32,10 @@
 	},
 	"keywords": [
 		"Ethereum",
-		"Foundry",
 		"Solidity",
+		"Foundry",
 		"Forge",
+		"Anvil",
 		"Hardhat",
 		"ENS",
 		"Ethereum Naming System"

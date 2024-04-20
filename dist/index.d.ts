@@ -31,7 +31,7 @@ type ArtifactLike = {
 	contract?: string;
 };
 
-export function compile(sol: string | string[], options?: {contract?: string}): Artifact;
+export function compile(sol: string | string[], options?: {contract?: string, foundry?: Foundry}): Promise<Artifact>;
 type ToConsoleLog = boolean | PathLike | ((line: string) => any);
 type WalletOptions = {
 	ether: BigNumberish;	
