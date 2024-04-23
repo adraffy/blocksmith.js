@@ -91,10 +91,14 @@ export class Foundry {
 	deploy<P>(options: {
 		from?: WalletLike;
 		args?: any[];
+		silent?: boolean;
 	} & ArtifactLike): Promise<DeployedContract>;
 
 	// send a transaction promise and get a pretty print console log
-	confirm(call: Promise<TransactionResponse>, info?: {[key: string]: any}): Promise<TransactionReceipt>;
+	confirm(call: Promise<TransactionResponse>, options?: {
+		silent?: boolean;
+		[key: string]: any;
+	}): Promise<TransactionReceipt>;
 
 	// kill anvil
 	shutdown(): Promise<void>;

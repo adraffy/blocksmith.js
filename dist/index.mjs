@@ -444,18 +444,20 @@ class Foundry extends FoundryBase {
 			}
 		}
 	}
-	async confirm(p, extra = {}) {
+	async confirm(p, {silent, ...extra} = {}) {
 		let tx = await p;
 		let receipt = await tx.wait();
 		let args = {gas: receipt.gasUsed, ...extra};
 		let contract = this.accounts.get(receipt.to);
-		if (contract instanceof ethers.BaseContract) {
-			let desc = contract.interface.parseTransaction(tx);
-			Object.assign(args, desc.args.toObject());
-			this.infoLog?.(TAG_TX, this.pretty(receipt.from), `${contract[_NAME]}.${desc.signature}`, this.pretty(args));
-			this._dump_logs(contract.interface, receipt);
-		} else {
-			this.infoLog?.(TAG_TX, this.pretty(receipt.from), '>>', this.pretty(receipt.to), this.pretty(args));
+		if (!silent) {
+			if (contract instanceof ethers.BaseContract) {
+				let desc = contract.interface.parseTransaction(tx);
+				Object.assign(args, desc.args.toObject());
+				this.infoLog?.(TAG_TX, this.pretty(receipt.from), `${contract[_NAME]}.${desc.signature}`, this.pretty(args));
+				this._dump_logs(contract.interface, receipt);
+			} else {
+				this.infoLog?.(TAG_TX, this.pretty(receipt.from), '>>', this.pretty(receipt.to), this.pretty(args));
+			}
 		}
 		return receipt;
 	}
@@ -522,7 +524,7 @@ class Foundry extends FoundryBase {
 		this.accounts.set(c.target, c);
 		return c;
 	}
-	async deploy({from, args = [], ...artifactLike}) {
+	async deploy({from, args = [], silent, ...artifactLike}) {
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);
 		let {abi, bytecode, ...artifact} = await this.resolveArtifact(artifactLike);
 		bytecode = ethers.getBytes(bytecode);
@@ -551,9 +553,10 @@ class Foundry extends FoundryBase {
 			}
 			bucket.set(ethers.id(e.format('sighash')), abi);
 		});
-
-		this.infoLog?.(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), `${ansi('33', receipt.gasUsed)}gas ${ansi('33', code.length)}bytes`); // {address, gas: receipt.gasUsed, size: code.length});
-		this._dump_logs(abi, receipt);
+		if (!silent) {
+			this.infoLog?.(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), `${ansi('33', receipt.gasUsed)}gas ${ansi('33', code.length)}bytes`); // {address, gas: receipt.gasUsed, size: code.length});
+			this._dump_logs(abi, receipt);
+		}
 		return c;
 	}
 }
