@@ -1,7 +1,7 @@
 import {spawn} from 'node:child_process';
 import {ethers} from 'ethers';
 import {createWriteStream} from 'node:fs';
-import {readFile, writeFile, copyFile, rm, mkdir, access, realpath} from 'node:fs/promises';
+import {readFile, writeFile, copyFile, rm, mkdir, access, realpath, utimes} from 'node:fs/promises';
 import {join, dirname, basename} from 'node:path';
 import {tmpdir} from 'node:os';
 import {error_with, is_address, to_address} from './utils.js';
@@ -56,7 +56,13 @@ function take_hash(s) {
 	return s.slice(2, 10);
 }
 
+// async function delayed_printer(promise, delay, fn) {
+// 	let timer = setTimeout(fn, delay);	
+// 	return promise.finally(() => clearTimeout(timer));
+// }
+
 async function exec_json(cmd, args, env) {
+	let timer = setTimeout(() => console.log(cmd, args), 1000);
 	return new Promise((ful, rej) => {
 		let proc = spawn(cmd, args, {encoding: 'utf8', env});
 		let stdout = '';
@@ -72,7 +78,7 @@ async function exec_json(cmd, args, env) {
 			}
 			rej(error_with('expected JSON output', {code, error: strip_ansi(stderr), cmd, args}));
 		});
-	});
+	}).finally(() => clearTimeout(timer));
 }
 
 //export async function evaluate(`return (1)`, ['uint256']);
@@ -98,7 +104,7 @@ export async function compile(sol, {contract, foundry, smart = true} = {}) {
 	let hash = take_hash(ethers.id(sol)); // TODO should this be more random
 	let root = join(await realpath(tmpdir()), 'blocksmith', hash);
 	
-	await rm(root, {recursive: true, force: true});
+	await rm(root, {recursive: true, force: true}); // better than --force 
 	
 	let src = join(root, foundry?.config.src ?? 'src');
 	await mkdir(src, {recursive: true});
@@ -109,11 +115,12 @@ export async function compile(sol, {contract, foundry, smart = true} = {}) {
 		'build',
 		'--format-json',
 		'--root', root,
+		'--no-cache', // rmdir() so cache is useless
 	];
 	let env = {...process.env, FOUNDRY_PROFILE: foundry?.profile ?? DEFAULT_PROFILE};
 	if (foundry) {
 		let remappings = [
-			['@src', foundry.config.src],
+			['@src', foundry.config.src], // this is nonstandard
 			...foundry.config.remappings.map(s => s.split('='))
 		];
 		for (let [a, b] of remappings) {
@@ -190,10 +197,40 @@ export class FoundryBase {
 		if (errors.length) {
 			throw error_with('forge build', {errors});
 		}
-		//let contracts = Object.values(res.contracts).flatMap(v => Object.keys(v));
+		/*
+		if (this.config.cache) {
+			// https://github.com/foundry-rs/foundry/issues/7797
+			let cache_file = join(this.root, this.config.cache_path, 'solidity-files-cache.json');
+			let cache = JSON.parse(await readFile(cache_file));
+			// find all duplicate files
+			let named = {};
+			for (let [file, {artifacts}] of Object.entries(cache.files)) {
+				for (let name of Object.keys(artifacts)) {
+					let bucket = named[name];
+					if (!bucket) named[name] = bucket = [];
+					bucket.push(file);
+				}
+			}
+			named = Object.values(named).filter(v => v.length > 1).flat();
+			if (named.length) {
+				for (let file of named) {
+					delete cache.files[file];
+				} 
+				await writeFile(cache_file, JSON.stringify(cache));
+				// let now = Date.now();
+				// await Promise.all(named.map(x => utimes(join(this.root, x), now, now)));
+				res = await exec_json(this.forge, args, {...process.env, FOUNDRY_PROFILE: this.profile});
+				errors = filter_errors(res.errors);
+				if (errors.length) {
+					throw error_with('forge build', {errors});
+				}
+			}
+		}
+		*/
 		return this.built = {date: new Date()};
 	}
 	async find({file, contract}) {
+		await this.build();
 		file = remove_sol_ext(file); // remove optional extension
 		if (!contract) contract = basename(file); // derive contract name from file name
 		file += '.sol'; // add extension
@@ -483,7 +520,6 @@ export class Foundry extends FoundryBase {
 		throw error_with('unknown artifact', args);
 	}
 	async fileArtifact(args) {
-		await this.build();
 		let file = await this.find(args);
 		let artifact = JSON.parse(await readFile(file));
 		let [origin, contract] = Object.entries(artifact.metadata.settings.compilationTarget)[0]; // TODO: is this correct?
