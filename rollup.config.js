@@ -13,6 +13,6 @@ export default defineConfig([
 				format: 'cjs',
 			},
 		],
-		external: /^@|^node:|^[^/]+$/
+		external: /^(@|node:|ethers)/
 	}
 ]);

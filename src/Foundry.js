@@ -1,7 +1,7 @@
 import {spawn} from 'node:child_process';
 import {ethers} from 'ethers';
 import {createWriteStream} from 'node:fs';
-import {readFile, writeFile, copyFile, rm, mkdir, access, realpath, utimes} from 'node:fs/promises';
+import {readFile, writeFile, copyFile, rm, mkdir, access, realpath/*, utimes*/} from 'node:fs/promises';
 import {join, dirname, basename} from 'node:path';
 import {tmpdir} from 'node:os';
 import {error_with, is_address, to_address} from './utils.js';
@@ -62,7 +62,7 @@ function take_hash(s) {
 // }
 
 async function exec_json(cmd, args, env) {
-	let timer = setTimeout(() => console.log(cmd, args), 1000);
+	let timer = setTimeout(() => console.log(cmd, args), 1000); // TODO: make this customizable
 	return new Promise((ful, rej) => {
 		let proc = spawn(cmd, args, {encoding: 'utf8', env});
 		let stdout = '';
