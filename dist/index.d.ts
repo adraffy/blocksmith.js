@@ -39,9 +39,30 @@ type WalletOptions = {
 type BuildInfo = {
 	date: Date;
 };
-export class Foundry {
-	static base(dir?: PathLike): string;
+
+export class FoundryBase {
 	static profile(): string;
+	static root(cwd?: PathLike): Promise<string>;
+	static load(options: {
+		root?: PathLike; // default: ancestor w/foundry.toml
+		profile?: string; // default: "default"
+		forge?: string;
+	}): Promise<FoundryBase>;
+	build(force?: boolean): Promise<BuildInfo>;
+	find(options: {file: string, contract?: string}): Promise<string>;
+
+	readonly root: string;
+	readonly profile: string;
+	readonly config: {
+		src: string;
+		out: string;
+		remappings: string[];
+	};
+	readonly anvil: string;
+	readonly forge: string;
+	readonly built?: BuildInfo;
+}
+export class Foundry extends FoundryBase {
 	static launch(options: {
 		port?: number;
 		chain?: number;
@@ -53,8 +74,6 @@ export class Foundry {
 		infoLog?: ToConsoleLog, // default: off
 		procLog?: ToConsoleLog; // default: console.log()
 		fork?: PathLike;
-		root?: PathLike; // default: ancestor w/foundry.toml
-		profile?: string; // default: "default"
 	}): Promise<Foundry>;
 
 	readonly proc: ChildProcess;
@@ -65,18 +84,8 @@ export class Foundry {
 	readonly chain: number;
 	readonly port: number;
 	readonly automine: boolean;
-	readonly root: string;
-	readonly profile: string;
-	readonly config: {
-		src: string;
-		out: string;
-		remappings: string[];
-	};
-	readonly bin: {
-		anvil: string;
-		forge: string;
-	};
-	readonly built?: {date: Date};
+
+	nextBlock(blocks?: number): Promise<void>;
 
 	// require a wallet
 	requireWallet(wallet: WalletLike, backup?: WalletLike): DevWallet;
@@ -84,8 +93,6 @@ export class Foundry {
 	ensureWallet(wallet: WalletLike, options?: WalletOptions): Promise<DevWallet>;
 
 	resolveArtifact(artifact: ArtifactLike): Promise<Artifact>;
-
-	build(force?: boolean): Promise<BuildInfo>;
 
 	// compile and deploy a contract, returns Contract with ABI
 	deploy<P>(options: {

@@ -160,7 +160,7 @@ export class FoundryBase {
 		return process.env.FOUNDRY_PROFILE ?? DEFAULT_PROFILE;
 	}
 	static async root(cwd) {
-		let dir = cwd || process.cwd();
+		let dir = await realpath(cwd || process.cwd());
 		while (true) {
 			let file = join(dir, 'foundry.toml');
 			try {

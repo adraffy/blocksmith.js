@@ -184,7 +184,7 @@ class FoundryBase {
 		return process.env.FOUNDRY_PROFILE ?? DEFAULT_PROFILE;
 	}
 	static async root(cwd) {
-		let dir = cwd || process.cwd();
+		let dir = await promises.realpath(cwd || process.cwd());
 		while (true) {
 			let file = node_path.join(dir, 'foundry.toml');
 			try {
