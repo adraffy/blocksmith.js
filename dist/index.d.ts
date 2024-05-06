@@ -29,9 +29,15 @@ type ArtifactLike = {
 	abi?: Interface;
 	bytecode?: string,
 	contract?: string;
+	//[key: string]: any;
 };
 
-export function compile(sol: string | string[], options?: {contract?: string, foundry?: Foundry}): Promise<Artifact>;
+export function compile(sol: string | string[], options?: {
+	contract?: string;
+	foundry?: Foundry;
+	optimize?: boolean | number;
+	//[key: string]: any;
+}): Promise<Artifact>;
 type ToConsoleLog = boolean | PathLike | ((line: string) => any);
 type WalletOptions = {
 	ether: BigNumberish;	

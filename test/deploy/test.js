@@ -31,7 +31,7 @@ test('deploy w/inline import', async () => {
 	let foundry = await Foundry.launch();
 	after(() => foundry.shutdown());
 	let contract = await foundry.deploy({sol: `
-		import {Deploy} from "@src/deploy/Deploy.sol";
+		import {Deploy} from "@test/deploy/Deploy.sol";
 		contract Chonk is Deploy {
 		}
 	`});
@@ -41,7 +41,7 @@ test('deploy w/inline import', async () => {
 test('deploy w/import', async () => {
 	let foundry = await Foundry.launch();
 	after(() => foundry.shutdown());
-	let contract = await foundry.deploy({import: '@src/deploy/Deploy.sol'});
+	let contract = await foundry.deploy({import: '@test/deploy/Deploy.sol'});
 	assert.equal(await contract.read(), 1n);
 });
 

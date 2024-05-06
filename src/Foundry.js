@@ -1,12 +1,13 @@
 import {spawn} from 'node:child_process';
 import {ethers} from 'ethers';
 import {createWriteStream} from 'node:fs';
-import {readFile, writeFile, copyFile, rm, mkdir, access, realpath/*, utimes*/} from 'node:fs/promises';
+import {readFile, writeFile, rm, mkdir, access, realpath/*, utimes*/} from 'node:fs/promises';
 import {join, dirname, basename} from 'node:path';
 import {tmpdir} from 'node:os';
 import {error_with, is_address, to_address} from './utils.js';
 import {inspect} from 'node:util';
 import {Console} from 'node:console';
+import * as Toml from './toml.js';
 
 // https://docs.soliditylang.org/en/latest/grammar.html#a4.SolidityLexer.Identifier
 
@@ -83,7 +84,7 @@ async function exec_json(cmd, args, env) {
 
 //export async function evaluate(`return (1)`, ['uint256']);
 
-export async function compile(sol, {contract, foundry, smart = true} = {}) {
+export async function compile(sol, {contract, foundry, optimize, smart = true} = {}) {
 	if (Array.isArray(sol)) {
 		sol = sol.join('\n');
 	}
@@ -100,7 +101,6 @@ export async function compile(sol, {contract, foundry, smart = true} = {}) {
 			sol = `// SPDX-License-Identifier: UNLICENSED\n${sol}`;
 		}
 	}
-
 	let hash = take_hash(ethers.id(sol)); // TODO should this be more random
 	let root = join(await realpath(tmpdir()), 'blocksmith', hash);
 	
@@ -117,17 +117,34 @@ export async function compile(sol, {contract, foundry, smart = true} = {}) {
 		'--root', root,
 		'--no-cache', // rmdir() so cache is useless
 	];
-	let env = {...process.env, FOUNDRY_PROFILE: foundry?.profile ?? DEFAULT_PROFILE};
+	
+	let env = {...process.env, FOUNDRY_PROFILE: DEFAULT_PROFILE};
+	let config;
 	if (foundry) {
+		config = JSON.parse(JSON.stringify(foundry.config)); // structuredClone?
 		let remappings = [
 			['@src', foundry.config.src], // this is nonstandard
-			...foundry.config.remappings.map(s => s.split('='))
+			['@test', foundry.config.test],
+			...config.remappings.map(s => s.split('='))
 		];
-		for (let [a, b] of remappings) {
-			args.push('-R', `${a}=${join(foundry.root, b)}`); // --remappings
-		}
-		await copyFile(join(foundry.root, CONFIG_NAME), join(root, CONFIG_NAME));
+		config.remappings = remappings.map(([a, b]) => `${a}=${join(foundry.root, b)}`);
+	} else {
+		config = {};
 	}
+	
+	// cant use --optimize, no way to turn it off
+	let config_file = join(root, CONFIG_NAME);
+	if (optimize !== undefined) {
+		if (optimize === true) optimize = 200;
+		if (optimize === false) {
+			config.optimizer = false;
+		} else {
+			config.optimizer = true;
+			config.optimizer_runs = optimize; // TODO: parse?
+		}
+	}
+	await writeFile(config_file, Toml.encode({profile: {[DEFAULT_PROFILE]: config}}));
+	args.push('--config-path', config_file);
 
 	let res = await exec_json(foundry?.forge ?? 'forge', args, env);
 	let errors = filter_errors(res.errors);
@@ -149,16 +166,19 @@ export async function compile(sol, {contract, foundry, smart = true} = {}) {
 			throw error_with('expected contract', {sol, contracts: Object.keys(res.contracts), contract});
 		}
 	}
-	let {contract: {abi, evm: {bytecode: {object: bytecode}}}} = info;
+	let {contract: {abi, evm}} = info;
 	abi = ethers.Interface.from(abi);
-	bytecode = '0x' + bytecode;
-	return {abi, bytecode, contract, origin, sol};
+	let bytecode = '0x' + evm.bytecode.object;
+	let deployedBytecode = '0x' + evm.deployedBytecode.object; // TODO: decide how to do this
+	return {abi, bytecode, deployedBytecode, contract, origin, sol};
 }
 
+// should this be called Foundry?
 export class FoundryBase {
 	static profile() {
 		return process.env.FOUNDRY_PROFILE ?? DEFAULT_PROFILE;
 	}
+	// should
 	static async root(cwd) {
 		let dir = await realpath(cwd || process.cwd());
 		while (true) {
@@ -197,36 +217,6 @@ export class FoundryBase {
 		if (errors.length) {
 			throw error_with('forge build', {errors});
 		}
-		/*
-		if (this.config.cache) {
-			// https://github.com/foundry-rs/foundry/issues/7797
-			let cache_file = join(this.root, this.config.cache_path, 'solidity-files-cache.json');
-			let cache = JSON.parse(await readFile(cache_file));
-			// find all duplicate files
-			let named = {};
-			for (let [file, {artifacts}] of Object.entries(cache.files)) {
-				for (let name of Object.keys(artifacts)) {
-					let bucket = named[name];
-					if (!bucket) named[name] = bucket = [];
-					bucket.push(file);
-				}
-			}
-			named = Object.values(named).filter(v => v.length > 1).flat();
-			if (named.length) {
-				for (let file of named) {
-					delete cache.files[file];
-				} 
-				await writeFile(cache_file, JSON.stringify(cache));
-				// let now = Date.now();
-				// await Promise.all(named.map(x => utimes(join(this.root, x), now, now)));
-				res = await exec_json(this.forge, args, {...process.env, FOUNDRY_PROFILE: this.profile});
-				errors = filter_errors(res.errors);
-				if (errors.length) {
-					throw error_with('forge build', {errors});
-				}
-			}
-		}
-		*/
 		return this.built = {date: new Date()};
 	}
 	async find({file, contract}) {
@@ -247,6 +237,38 @@ export class FoundryBase {
 				path = parent;
 			}
 		}
+	}
+	async resolveArtifact(args) {
+		let {import: imported, sol, bytecode, abi, file, contract, ...rest} = args;
+		if (imported) {
+			sol = `import "${imported}";`;
+			contract = remove_sol_ext(basename(imported));
+		}
+		if (sol) {
+			// TODO: should this be .compile?
+			return compile(sol, {contract, foundry: this, ...rest});
+		} else if (bytecode) {
+			if (!contract) contract = 'Unnamed';
+			abi = ethers.Interface.from(abi);
+			return {abi, bytecode, contract, origin: 'Bytecode'}
+		} else if (file) {
+			return this.fileArtifact({file, contract});
+		}
+		throw error_with('unknown artifact', args);
+	}
+	// async compileArtifact({sol, contract, ...rest}) {
+	// 	return compile(sol, {contract, rest})
+	// }
+	async fileArtifact(args) {
+		let file = await this.find(args);
+		let artifact = JSON.parse(await readFile(file));
+		let [origin, contract] = Object.entries(artifact.metadata.settings.compilationTarget)[0]; // TODO: is this correct?
+		let bytecode = artifact.bytecode.object;
+		let abi = ethers.Interface.from(artifact.abi);
+		return {abi, bytecode, contract, origin, file};
+	}
+	tomlConfig() {
+		return Toml.encode({profile: {[this.profile]: this.config}});
 	}
 }
 
@@ -283,7 +305,8 @@ export class Foundry extends FoundryBase {
 				//args.push('--disable-block-gas-limit');
 				// https://github.com/foundry-rs/foundry/pull/6955
 				// currently bugged
-				gasLimit = '99999999999999999999999';
+				//gasLimit = '99999999999999999999999';
+				gasLimit = '922337203685477000';
 			}
 			if (gasLimit) args.push('--gas-limit', gasLimit);
 			if (fork) args.push('--fork-url', fork);
@@ -500,32 +523,6 @@ export class Foundry extends FoundryBase {
 				infoLog(TAG_LOG, log.signature, this.pretty(log.args.toObject()));
 			}
 		}
-	}	
-	async resolveArtifact(args) {
-		let {import: imported, sol, bytecode, abi, file, contract} = args;
-		if (imported) {
-			sol = `import "${imported}";`;
-			contract = remove_sol_ext(basename(imported));
-		}
-		if (sol) {
-			// TODO: should this be .compile?
-			return compile(sol, {contract, foundry: this});
-		} else if (bytecode) {
-			if (!contract) contract = 'Unnamed';
-			abi = ethers.Interface.from(abi);
-			return {abi, bytecode, contract, origin: 'Bytecode'}
-		} else if (file) {
-			return this.fileArtifact({file, contract});
-		}
-		throw error_with('unknown artifact', args);
-	}
-	async fileArtifact(args) {
-		let file = await this.find(args);
-		let artifact = JSON.parse(await readFile(file));
-		let [origin, contract] = Object.entries(artifact.metadata.settings.compilationTarget)[0]; // TODO: is this correct?
-		let bytecode = artifact.bytecode.object;
-		let abi = ethers.Interface.from(artifact.abi);
-		return {abi, bytecode, contract, origin, file};
 	}
 	async deployed({from, at, ...artifactLike}) {
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);
@@ -552,10 +549,11 @@ export class Foundry extends FoundryBase {
 		c[_NAME] = `${artifact.contract}<${take_hash(c.target)}>`; // so we can deploy the same contract multiple times
 		c[_OWNER] = this;
 		c.toString = get_NAME;
-		c.__artifact = artifact; // TODO: stick .code in here?
+		c.__artifact = artifact;
 		c.__receipt = receipt;
 
 		let code = ethers.getBytes(await this.provider.getCode(c.target));
+		c.__bytecode = code;
 
 		this.accounts.set(c.target, c);
 		abi.forEachEvent(e => this.event_map.set(e.topicHash, abi));

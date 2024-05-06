@@ -23,7 +23,9 @@
 * [resolverworks/**TheOffchainResolver.sol**](https://github.com/resolverworks/TheOffchainResolver.sol/blob/main/test/test.js)
 * [resolverworks/**XCTENS.sol**](https://github.com/resolverworks/XCTENS.sol/blob/main/test/test.js)
 * [resolverworks/**OffchainNext.sol**](https://github.com/resolverworks/OffchainNext.sol/blob/main/test/test.js)
-* [adraffy/**CCIPRewriter.sol**](https://github.com/adraffy/CCIPRewriter.sol/blob/main/test/resolver.js)
+* [resolverworks/**ens-gateway**](https://github.com/resolverworks/ens-gateway)
+* [adraffy/**CCIPRewriter.sol**](https://github.com/adraffy/CCIPRewriter.sol)
+* [adraffy/**punycode.sol**](https://github.com/adraffy/punycode.sol)
 
 ### Additional Tooling
 
