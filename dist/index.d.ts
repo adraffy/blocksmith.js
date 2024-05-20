@@ -76,11 +76,11 @@ export class Foundry extends FoundryBase {
 		gasLimit?: number;
 		blockSec?: number;
 		accounts?: string[],
-		autoclose?: boolean; // default: true
+		autoClose?: boolean; // default: true
 		infoLog?: ToConsoleLog, // default: off
 		procLog?: ToConsoleLog; // default: console.log()
 		fork?: PathLike;
-	}): Promise<Foundry>;
+	} & Parameters<typeof FoundryBase.load>): Promise<Foundry>;
 
 	readonly proc: ChildProcess;
 	readonly provider: WebSocketProvider;
@@ -101,7 +101,7 @@ export class Foundry extends FoundryBase {
 	resolveArtifact(artifact: ArtifactLike): Promise<Artifact>;
 
 	// compile and deploy a contract, returns Contract with ABI
-	deploy<P>(options: {
+	deploy(options: {
 		from?: WalletLike;
 		args?: any[];
 		silent?: boolean;

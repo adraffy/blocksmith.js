@@ -311,7 +311,7 @@ class FoundryBase {
 		if (!profile) profile = this.profile();
 		let config;
 		try {
-			config = await exec_json(forge, ['config', '--json', '--root', root], {...process.env, FOUNDRY_PROFILE: profile});
+			config = await exec_json(forge, ['config', '--root', root, '--json'], {...process.env, FOUNDRY_PROFILE: profile});
 		} catch (err) {
 			throw error_with(`invalid ${CONFIG_NAME}`, {root, profile}, err);
 		}
@@ -379,6 +379,8 @@ class FoundryBase {
 	tomlConfig() {
 		return encode({profile: {[this.profile]: this.config}});
 	}
+
+	
 }
 
 class Foundry extends FoundryBase {
@@ -390,7 +392,7 @@ class Foundry extends FoundryBase {
 		infiniteCallGas,
 		gasLimit,
 		blockSec,
-		autoclose = true,
+		autoClose = true,
 		fork, 
 		procLog,
 		infoLog = true,
@@ -414,8 +416,8 @@ class Foundry extends FoundryBase {
 				//args.push('--disable-block-gas-limit');
 				// https://github.com/foundry-rs/foundry/pull/6955
 				// currently bugged
-				//gasLimit = '99999999999999999999999';
-				gasLimit = '922337203685477000';
+				//gasLimit = '9223372036854775000'; // nextBefore(2^63-1)
+				gasLimit = '99999999999999999999999';
 			}
 			if (gasLimit) args.push('--gas-limit', gasLimit);
 			if (fork) args.push('--fork-url', fork);
@@ -439,7 +441,7 @@ class Foundry extends FoundryBase {
 			async function init(bootmsg, host) {
 				proc.stdout.removeListener('data', waiter);
 				proc.stderr.removeListener('data', fail);
-				if (autoclose) {
+				if (autoClose) {
 					const kill = () => proc.kill();
 					process.on('exit', kill);
 					proc.once('exit', () => process.removeListener('exit', kill));
