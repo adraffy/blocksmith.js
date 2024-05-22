@@ -5,22 +5,29 @@ import {
 } from "ethers";
 import {ChildProcess} from "node:child_process";
 
-type DevWallet = BaseWallet & {__name: string};
-type DeployedContract = Contract & {
-	__receipt: TransactionReceipt;
-	__artifact: Artifact;
+type DevWallet = BaseWallet & {
+	readonly __name: string;
 };
+type DeployedContract = Readonly<Contract & {
+	readonly __receipt: TransactionReceipt;
+	readonly __artifact: Artifact;
+	readonly target: string;
+}>;
 
 type PathLike = string | URL;
 type WalletLike = string | DevWallet;
 type BaseArtifact = {
-	abi: Interface;
-	bytecode: string;
-	contract: string;
-	origin: string;
-}
-type FileArtifact = BaseArtifact & {file: string};
-type InlineArtifact = BaseArtifact & {sol: string};
+	readonly abi: Interface;
+	readonly bytecode: string;
+	readonly contract: string;
+	readonly origin: string;
+};
+type FileArtifact = BaseArtifact & {
+	readonly file: string;
+};
+type InlineArtifact = BaseArtifact & {
+	readonly sol: string;
+};
 type Artifact = FileArtifact | InlineArtifact | BaseArtifact;
 type ArtifactLike = {
 	import?: string;
@@ -49,7 +56,7 @@ type BuildInfo = {
 export class FoundryBase {
 	static profile(): string;
 	static root(cwd?: PathLike): Promise<string>;
-	static load(options: {
+	static load(options?: {
 		root?: PathLike; // default: ancestor w/foundry.toml
 		profile?: string; // default: "default"
 		forge?: string;
@@ -69,7 +76,7 @@ export class FoundryBase {
 	readonly built?: BuildInfo;
 }
 export class Foundry extends FoundryBase {
-	static launch(options: {
+	static launch(options?: {
 		port?: number;
 		chain?: number;
 		anvil?: string;

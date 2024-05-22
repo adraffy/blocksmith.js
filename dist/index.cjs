@@ -379,8 +379,10 @@ class FoundryBase {
 	tomlConfig() {
 		return encode({profile: {[this.profile]: this.config}});
 	}
-
-	
+	// async deployArtifact() {
+	// 	// create server?
+	// 	// create static html?
+	// }
 }
 
 class Foundry extends FoundryBase {
