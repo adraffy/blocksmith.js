@@ -8,11 +8,11 @@ import {ChildProcess} from "node:child_process";
 type DevWallet = BaseWallet & {
 	readonly __name: string;
 };
-type DeployedContract = Readonly<Contract & {
+type DeployedContract = Contract & {
 	readonly __receipt: TransactionReceipt;
 	readonly __artifact: Artifact;
 	readonly target: string;
-}>;
+};
 
 type PathLike = string | URL;
 type WalletLike = string | DevWallet;
@@ -53,17 +53,17 @@ type BuildInfo = {
 	date: Date;
 };
 
+type FoundryBaseOptions = {
+	root?: PathLike; // default: ancestor w/foundry.toml
+	profile?: string; // default: "default"
+	forge?: string;
+};
 export class FoundryBase {
 	static profile(): string;
 	static root(cwd?: PathLike): Promise<string>;
-	static load(options?: {
-		root?: PathLike; // default: ancestor w/foundry.toml
-		profile?: string; // default: "default"
-		forge?: string;
-	}): Promise<FoundryBase>;
+	static load(options?: FoundryBaseOptions): Promise<FoundryBase>;
 	build(force?: boolean): Promise<BuildInfo>;
 	find(options: {file: string, contract?: string}): Promise<string>;
-
 	readonly root: string;
 	readonly profile: string;
 	readonly config: {
@@ -87,7 +87,7 @@ export class Foundry extends FoundryBase {
 		infoLog?: ToConsoleLog, // default: off
 		procLog?: ToConsoleLog; // default: console.log()
 		fork?: PathLike;
-	} & Parameters<typeof FoundryBase.load>): Promise<Foundry>;
+	} & FoundryBaseOptions): Promise<Foundry>;
 
 	readonly proc: ChildProcess;
 	readonly provider: WebSocketProvider;
