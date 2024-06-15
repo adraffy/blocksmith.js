@@ -62,8 +62,9 @@ function take_hash(s) {
 // 	return promise.finally(() => clearTimeout(timer));
 // }
 
-async function exec_json(cmd, args, env) {
-	let timer = setTimeout(() => console.log(cmd, args), 1000); // TODO: make this customizable
+async function exec_json(cmd, args, env, log) {
+	let timer;
+	if (log) setTimeout(() => log(cmd, args), 5000); // TODO: make this customizable
 	return new Promise((ful, rej) => {
 		let proc = spawn(cmd, args, {encoding: 'utf8', env});
 		let stdout = '';
@@ -202,7 +203,7 @@ export class FoundryBase {
 		if (!profile) profile = this.profile();
 		let config;
 		try {
-			config = await exec_json(forge, ['config', '--root', root, '--json'], {...process.env, FOUNDRY_PROFILE: profile});
+			config = await exec_json(forge, ['config', '--root', root, '--json'], {...process.env, FOUNDRY_PROFILE: profile}, this.procLog);
 		} catch (err) {
 			throw error_with(`invalid ${CONFIG_NAME}`, {root, profile}, err);
 		}
@@ -212,7 +213,7 @@ export class FoundryBase {
 		if (!force && this.built) return this.built;
 		let args = ['build', '--format-json', '--root', this.root];
 		if (force) args.push('--force');
-		let res = await exec_json(this.forge, args, {...process.env, FOUNDRY_PROFILE: this.profile});
+		let res = await exec_json(this.forge, args, {...process.env, FOUNDRY_PROFILE: this.profile}, this.procLog);
 		let errors = filter_errors(res.errors);
 		if (errors.length) {
 			throw error_with('forge build', {errors});
@@ -244,13 +245,13 @@ export class FoundryBase {
 			sol = `import "${imported}";`;
 			contract = remove_sol_ext(basename(imported));
 		}
-		if (sol) {
-			// TODO: should this be .compile?
-			return compile(sol, {contract, foundry: this, ...rest});
-		} else if (bytecode) {
+		if (bytecode) {
 			if (!contract) contract = 'Unnamed';
 			abi = ethers.Interface.from(abi);
 			return {abi, bytecode, contract, origin: 'Bytecode'}
+		} else if (sol) {
+			// TODO: should this be .compile?
+			return compile(sol, {contract, foundry: this, ...rest});
 		} else if (file) {
 			return this.fileArtifact({file, contract});
 		}
@@ -541,8 +542,8 @@ export class Foundry extends FoundryBase {
 	}
 	async deploy({from, args = [], silent, ...artifactLike}) {
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);
-		let {abi, bytecode, ...artifact} = await this.resolveArtifact(artifactLike);
-		bytecode = ethers.getBytes(bytecode);
+		let {abi, ...artifact} = await this.resolveArtifact(artifactLike);
+		let bytecode = ethers.getBytes(artifact.bytecode);
 		if (!bytecode.length) throw error_with('no bytecode', artifact);
 		let factory = new ethers.ContractFactory(abi, bytecode, w);
 		let unsigned = await factory.getDeployTransaction(...args);
@@ -557,7 +558,7 @@ export class Foundry extends FoundryBase {
 		c.__receipt = receipt;
 
 		let code = ethers.getBytes(await this.provider.getCode(c.target));
-		c.__bytecode = code;
+		//c.__bytecode = code;
 
 		this.accounts.set(c.target, c);
 		abi.forEachEvent(e => this.event_map.set(e.topicHash, abi));

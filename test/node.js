@@ -20,3 +20,8 @@ root.find('sub.raffy.eth').create('a.b.c');
 root.print();
 
 console.log(root.flat().map(x => x.name));
+
+console.log(sub2.root === root);
+
+console.log(sub2.path().map(x => x.name));
+

@@ -11,6 +11,7 @@ type DevWallet = BaseWallet & {
 type DeployedContract = Contract & {
 	readonly __receipt: TransactionReceipt;
 	readonly __artifact: Artifact;
+	//readonly __bytecode: Uint8Array;
 	readonly target: string;
 };
 
@@ -87,6 +88,7 @@ export class Foundry extends FoundryBase {
 		infoLog?: ToConsoleLog, // default: off
 		procLog?: ToConsoleLog; // default: console.log()
 		fork?: PathLike;
+		infiniteCallGas?: number;
 	} & FoundryBaseOptions): Promise<Foundry>;
 
 	readonly proc: ChildProcess;
@@ -102,7 +104,7 @@ export class Foundry extends FoundryBase {
 
 	// require a wallet
 	requireWallet(wallet: WalletLike, backup?: WalletLike): DevWallet;
-	createWallet(options?: {prefix: string} & WalletOptions): Promise<DevWallet>;
+	createWallet(options?: {prefix?: string} & WalletOptions): Promise<DevWallet>;
 	ensureWallet(wallet: WalletLike, options?: WalletOptions): Promise<DevWallet>;
 
 	resolveArtifact(artifact: ArtifactLike): Promise<Artifact>;
@@ -125,20 +127,23 @@ export class Foundry extends FoundryBase {
 }
 
 export class Node extends Map {
-	static root(): Node;
+	static root(tag?: string): Node;
 	static create(name: string | Node): Node;
 
-	readonly parent: Node;
-	readonly nodehash: string;
 	readonly label: string;
-	readonly labelhash: string;
+	readonly parent: Node;
 
-	get root(): Node;
-	get name(): string;
+	readonly namehash: string;
+	readonly labelhash: string;
 	get dns(): Uint8Array;
-	get depth(): number;
-	get nodes(): number;
+
+	get name(): string;
 	get isETH2LD(): boolean;
+	
+	get depth(): number;
+	get nodeCount(): number;
+	get root(): Node;
+	path(includeRoot?: boolean): Node[];
 
 	find(name: string): Node | undefined;
 	create(name: string): Node;
@@ -164,10 +169,11 @@ export class Resolver {
 	readonly node: Node;
 	readonly contract: Contract;
 	
-	readonly base?: Node;
-	readonly wild?: boolean;
-	readonly tor?: boolean;
-	readonly drop?: number;
+	readonly base: Node;
+	readonly drop: number;
+
+	wild: boolean;
+	tor: boolean;
 
 	get address(): string;
 
@@ -175,7 +181,7 @@ export class Resolver {
 	addr(type?: number, options?: RecordOptions): Promise<string>;
 	contenthash(options?: RecordOptions): Promise<string>;
 	record(rec: RecordQuery, options?: RecordOptions): Promise<any>;
-	records(rec: RecordQuery[], options?: RecordOptions): Promise<RecordResult[]>;
+	records(rec: RecordQuery[], options?: RecordOptions): Promise<[records: RecordResult[], multicalled?: boolean]>;
 	profile(rec?: RecordQuery[], options?: RecordOptions): Promise<{[key: string]: any}>;
 
 }
