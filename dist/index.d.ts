@@ -48,7 +48,7 @@ export function compile(sol: string | string[], options?: {
 }): Promise<Artifact>;
 type ToConsoleLog = boolean | PathLike | ((line: string) => any);
 type WalletOptions = {
-	ether: BigNumberish;	
+	ether?: BigNumberish;	
 };
 type BuildInfo = {
 	date: Date;
