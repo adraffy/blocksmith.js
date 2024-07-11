@@ -238,6 +238,7 @@ async function compile(sol, {contract, foundry, optimize, smart = true} = {}) {
 		config.remappings = remappings.map(([a, b]) => {
 			let pos = a.indexOf(':');
 			if (pos >= 0) {
+				// support remapping contexts
 				a = join(foundry.root, a.slice(0, pos)) + a.slice(pos);
 			}
 			return `${a}=${join(foundry.root, b)}`;
