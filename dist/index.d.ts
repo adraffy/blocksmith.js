@@ -103,7 +103,7 @@ export class Foundry extends FoundryBase {
 	nextBlock(blocks?: number): Promise<void>;
 
 	// require a wallet
-	requireWallet(wallet: WalletLike, backup?: WalletLike): DevWallet;
+	requireWallet(...wallets: (WalletLike | undefined)[]): DevWallet;
 	createWallet(options?: {prefix?: string} & WalletOptions): Promise<DevWallet>;
 	ensureWallet(wallet: WalletLike, options?: WalletOptions): Promise<DevWallet>;
 
