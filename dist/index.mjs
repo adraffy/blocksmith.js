@@ -235,7 +235,13 @@ async function compile(sol, {contract, foundry, optimize, smart = true} = {}) {
 			['@test', foundry.config.test],
 			...config.remappings.map(s => s.split('='))
 		];
-		config.remappings = remappings.map(([a, b]) => `${a}=${join(foundry.root, b)}`);
+		config.remappings = remappings.map(([a, b]) => {
+			let pos = a.indexOf(':');
+			if (pos >= 0) {
+				a = join(foundry.root, a.slice(0, pos)) + a.slice(pos);
+			}
+			return `${a}=${join(foundry.root, b)}`;
+		});
 	} else {
 		config = {};
 	}

@@ -2,7 +2,7 @@
 
 ⚠️ This repo is under active development!
 
-`npm i @adraffy/blocksmith`
+`$ npm i @adraffy/blocksmith` [&check;](https://www.npmjs.com/package/@adraffy/blocksmith)
 
 * see [**types**](./dist/index.d.ts) / designed for [Foundry](https://github.com/foundry-rs/foundry) + [ethers](https://github.com/ethers-io/ethers.js).
 * compatible with any async test runner, including [node:test](https://nodejs.org/api/test.html)
@@ -23,7 +23,8 @@
 * [resolverworks/**TheOffchainResolver.sol**](https://github.com/resolverworks/TheOffchainResolver.sol/blob/main/test/test.js)
 * [resolverworks/**XCTENS.sol**](https://github.com/resolverworks/XCTENS.sol/blob/main/test/test.js)
 * [resolverworks/**OffchainNext.sol**](https://github.com/resolverworks/OffchainNext.sol/blob/main/test/test.js)
-* [resolverworks/**ens-gateway**](https://github.com/resolverworks/ens-gateway)
+* [unruggable-labs/**evmgateway-v2**](https://github.com/unruggable-labs/evmgateway-v2/tree/main/v2)
+* [unruggable-labs/**Storage.sol**](https://github.com/unruggable-labs/Storage.sol)
 * [adraffy/**CCIPRewriter.sol**](https://github.com/adraffy/CCIPRewriter.sol)
 * [adraffy/**punycode.sol**](https://github.com/adraffy/punycode.sol)
 
