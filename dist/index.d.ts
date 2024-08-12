@@ -85,10 +85,10 @@ export class Foundry extends FoundryBase {
 		blockSec?: number;
 		accounts?: string[],
 		autoClose?: boolean; // default: true
-		infoLog?: ToConsoleLog, // default: off
-		procLog?: ToConsoleLog; // default: console.log()
+		infoLog?: ToConsoleLog, // default: true = console.log()
+		procLog?: ToConsoleLog; // default: off
 		fork?: PathLike;
-		infiniteCallGas?: number;
+		infiniteCallGas?: boolean;
 	} & FoundryBaseOptions): Promise<Foundry>;
 
 	readonly proc: ChildProcess;

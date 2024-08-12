@@ -141,17 +141,18 @@ function remove_sol_ext(s) {
 const CONFIG_NAME = 'foundry.toml';
 
 function ansi(c, s) {
-	return `\u001b[${c}m${s}\u001b[0m`;
+	return `\x1B[${c}m${s}\u001b[0m`;
 }
 function strip_ansi(s) {
 	return s.replaceAll(/[\u001b][^m]+m/g, ''); //.split('\n');
 }
 
-const TAG_START  =            'LAUNCH'; //ansi('34', 'LAUNCH');
-const TAG_DEPLOY = ansi('33', 'DEPLOY');
-const TAG_LOG    = ansi('36', 'LOG');
-const TAG_TX     = ansi('33', 'TX');
-const TAG_STOP   =            'STOP'; // ansi('34', '**STOP');
+const TAG_START   = ansi('93', 'LAUNCH');
+const TAG_DEPLOY  = ansi('33', 'DEPLOY');
+const TAG_TX      = ansi('33', '    TX');
+const TAG_EVENT   = ansi('36', ' EVENT');
+const TAG_CONSOLE = ansi('96', '   LOG');
+const TAG_STOP    = ansi('93', '  STOP'); 
 
 const DEFAULT_WALLET = 'admin';
 const DEFAULT_PROFILE = 'default';
@@ -413,8 +414,10 @@ class Foundry extends FoundryBase {
 		if (!infoLog) infoLog = undefined;
 		if (!procLog) procLog = undefined;
 		if (infoLog === true) infoLog = console.log.bind(console);
+		// if (infoLog === true) {
+		// 	infoLog = (...a) => console.log(ansi('2', new Date().toISOString()), ...a);
+		// }
 		if (procLog === true) procLog = console.log.bind(console);
-
 		return new Promise((ful, rej) => {
 			let args = [
 				'--port', port,
@@ -423,15 +426,12 @@ class Foundry extends FoundryBase {
 			if (chain) args.push('--chain-id', chain);
 			if (blockSec) args.push('--block-time', blockSec);
 			if (infiniteCallGas) {
-				//args.push('--disable-block-gas-limit');
-				// https://github.com/foundry-rs/foundry/pull/6955
-				// currently bugged
-				//gasLimit = '9223372036854775000'; // nextBefore(2^63-1)
-				gasLimit = '99999999999999999999999';
+				args.push('--disable-block-gas-limit');
+			} else if (gasLimit) {
+				args.push('--gas-limit', gasLimit);
 			}
-			if (gasLimit) args.push('--gas-limit', gasLimit);
 			if (fork) args.push('--fork-url', fork);
-			let proc = node_child_process.spawn(anvil, args);
+			let proc = node_child_process.spawn(anvil, args, {env: {...process.env, RUST_LOG: 'node=info'}});
 			proc.stdin.end();
 			const fail = data => {
 				proc.kill();
@@ -456,19 +456,39 @@ class Foundry extends FoundryBase {
 					process.on('exit', kill);
 					proc.once('exit', () => process.removeListener('exit', kill));
 				}
-				if (is_pathlike(procLog)) {
-					let out = node_fs.createWriteStream(procLog);
-					out.write(bootmsg + '\n');
-					proc.stdout.pipe(out);
-				} else if (procLog) {
-					// pass string
-					procLog(bootmsg);
-					proc.stdout.on('data', on_newline(procLog)); // TODO: how to intercept console2
-				}
 				if (is_pathlike(infoLog)) {
 					let console = new node_console.Console(node_fs.createWriteStream(infoLog));
 					infoLog = console.log.bind(console);
 				}
+				if (is_pathlike(procLog)) {
+					let out = node_fs.createWriteStream(procLog);
+					out.write(bootmsg + '\n');
+					proc.stdout.pipe(out);
+					procLog = false;
+				} else if (procLog) {
+					procLog(bootmsg);
+				}
+				let show_log = true; // 20240811: foundry workaround for gas estimation spam
+				proc.stdout.on('data', on_newline(line => {
+					// https://github.com/foundry-rs/foundry/issues/7681
+					// https://github.com/foundry-rs/foundry/issues/8591
+					// [2m2024-08-02T19:38:31.399817Z[0m [32m INFO[0m [2mnode::user[0m[2m:[0m anvil_setLoggingEnabled
+					if (infoLog) {
+						let match = line.match(/^(\x1B\[\d+m\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\x1B\[0m) \x1B\[\d+m([^\x1B]+)\x1B\[0m \x1B\[\d+m([^\x1B]+)\x1B\[0m\x1B\[2m:\x1B\[0m (.*)$/);
+						if (match) {
+							let [_, time, _level, kind, line] = match;
+							if (kind === 'node::user') {
+								show_log = line !== 'eth_estimateGas';
+							} else if (kind === 'node::console') {
+								if (show_log) {
+									infoLog(TAG_CONSOLE, time, line);
+								}
+								return;
+							}
+						}
+					}
+					procLog?.(line);
+				}));
 				let endpoint = `ws://${host}`;
 				port = parseInt(host.slice(host.lastIndexOf(':') + 1));
 				let provider = new ethers.ethers.WebSocketProvider(endpoint, chain, {staticNetwork: true});
@@ -641,7 +661,7 @@ class Foundry extends FoundryBase {
 				*/
 			}
 			if (log) {
-				infoLog(TAG_LOG, log.signature, this.pretty(log.args.toObject()));
+				infoLog(TAG_EVENT, log.signature, this.pretty(log.args.toObject()));
 			}
 		}
 	}
