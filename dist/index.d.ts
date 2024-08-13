@@ -15,6 +15,12 @@ type DeployedContract = Contract & {
 	readonly target: string;
 };
 
+type ExternalLink = {
+	file: string;
+	contract: string;
+	offsets: number[];
+};
+
 type PathLike = string | URL;
 type WalletLike = string | DevWallet;
 type BaseArtifact = {
@@ -22,12 +28,14 @@ type BaseArtifact = {
 	readonly bytecode: string;
 	readonly contract: string;
 	readonly origin: string;
+	readonly links: ExternalLink[];
 };
 type FileArtifact = BaseArtifact & {
 	readonly file: string;
 };
 type InlineArtifact = BaseArtifact & {
 	readonly sol: string;
+	readonly deployedByteCount: number;
 };
 type Artifact = FileArtifact | InlineArtifact | BaseArtifact;
 type ArtifactLike = {
@@ -48,7 +56,7 @@ export function compile(sol: string | string[], options?: {
 }): Promise<Artifact>;
 type ToConsoleLog = boolean | PathLike | ((line: string) => any);
 type WalletOptions = {
-	ether?: BigNumberish;	
+	ether?: BigNumberish;
 };
 type BuildInfo = {
 	date: Date;
@@ -113,6 +121,7 @@ export class Foundry extends FoundryBase {
 	deploy(options: {
 		from?: WalletLike;
 		args?: any[];
+		libs?: {[cid: string]: string | DeployedContract};
 		silent?: boolean;
 	} & ArtifactLike): Promise<DeployedContract>;
 

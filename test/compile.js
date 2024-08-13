@@ -6,7 +6,7 @@ async function compare(code) {
 	console.log(code);
 	for (let optimize of [false, 200, 9999]) {
 		let artifact = await compile(`contract Test { ${code} }`, {optimize});
-		console.log((artifact.deployedBytecode.length - 2) >> 1, optimize);
+		console.log(artifact.deployedByteCount, optimize);
 	}
 }
 

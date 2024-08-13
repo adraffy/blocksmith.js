@@ -167,6 +167,39 @@ function take_hash(s) {
 	return s.slice(2, 10);
 }
 
+function path_from_cid(cid) {
+	let pos = cid.lastIndexOf(':');
+	let contract;
+	if (pos == -1) {
+		contract = remove_sol_ext(node_path.basename(cid));
+	} else {
+		contract = remove_sol_ext(cid.slice(pos + 1));
+		cid = cid.slice(0, pos);
+	}
+	let path = cid.split(node_path.sep);
+	path.push(contract);
+	return path.reverse();
+}
+
+class ContractMap {
+	constructor() {
+		this.values = [];
+	}
+	add(cid, value) {
+		this.values.push({path: path_from_cid(cid), value});
+	}
+	find(cid) {
+		let path = path_from_cid(cid);
+		for (let n = 1; n < path.length; n++) {
+			let prefix = path.slice(0, n).join(node_path.sep);
+			let matched = this.values.filter(x => x.path.slice(0, n).join(node_path.sep) === prefix);
+			if (!matched.length) break; 
+			if (matched.length == 1) return [prefix, matched[0].value];
+		}
+		return {};
+	}
+}
+
 // async function delayed_printer(promise, delay, fn) {
 // 	let timer = setTimeout(fn, delay);	
 // 	return promise.finally(() => clearTimeout(timer));
@@ -269,6 +302,7 @@ async function compile(sol, {contract, foundry, optimize, smart = true} = {}) {
 	if (errors.length) {
 		throw error_with('forge build', {sol, errors});
 	}
+
 	let info = res.contracts[file]?.[contract]?.[0];
 	let origin = `InlineCode{${hash}}`;
 	if (!info) {
@@ -287,8 +321,10 @@ async function compile(sol, {contract, foundry, optimize, smart = true} = {}) {
 	let {contract: {abi, evm}} = info;
 	abi = ethers.ethers.Interface.from(abi);
 	let bytecode = '0x' + evm.bytecode.object;
-	let deployedBytecode = '0x' + evm.deployedBytecode.object; // TODO: decide how to do this
-	return {abi, bytecode, deployedBytecode, contract, origin, sol};
+	let links = extract_links(evm.bytecode.linkReferences);
+	//let deployedBytecode = '0x' + evm.deployedBytecode.object; // TODO: decide how to do this
+	let deployedByteCount = evm.deployedBytecode.object.length >> 1;
+	return {abi, bytecode, contract, origin, links, sol, deployedByteCount};
 }
 
 // should this be called Foundry?
@@ -365,7 +401,7 @@ class FoundryBase {
 		if (bytecode) {
 			if (!contract) contract = 'Unnamed';
 			abi = ethers.ethers.Interface.from(abi);
-			return {abi, bytecode, contract, origin: 'Bytecode'}
+			return {abi, bytecode, contract, origin: 'Bytecode', links: []}
 		} else if (sol) {
 			// TODO: should this be .compile?
 			return compile(sol, {contract, foundry: this, ...rest});
@@ -382,8 +418,29 @@ class FoundryBase {
 		let artifact = JSON.parse(await promises.readFile(file));
 		let [origin, contract] = Object.entries(artifact.metadata.settings.compilationTarget)[0]; // TODO: is this correct?
 		let bytecode = artifact.bytecode.object;
+		let links = extract_links(artifact.bytecode.linkReferences);
 		let abi = ethers.ethers.Interface.from(artifact.abi);
-		return {abi, bytecode, contract, origin, file};
+		return {abi, bytecode, contract, origin, file, links};
+	}
+	linkBytecode(bytecode, links, libs) {
+		let map = new ContractMap();
+		for (let [cid, impl] of Object.entries(libs)) {
+			let address = to_address(impl);
+			if (!address) throw error_with(`unable to determine library address: ${file}`, {file, impl});
+			map.add(cid, address);
+		}
+		let linked = Object.fromEntries(links.map(link => {
+			let cid = `${link.file}:${link.contract}`;
+			let [prefix, address] = map.find(cid);
+			if (!prefix) throw error_with(`unlinked external library: ${cid}`, link);
+			for (let offset of link.offsets) {
+				offset = (1 + offset) << 1;
+				bytecode = bytecode.slice(0, offset) + address.slice(2) + bytecode.slice(offset + 40);
+			}
+			return [prefix, address];
+		}));
+		bytecode = ethers.ethers.getBytes(bytecode);
+		return {bytecode, linked, libs};
 	}
 	tomlConfig() {
 		return encode({profile: {[this.profile]: this.config}});
@@ -628,21 +685,19 @@ class Foundry extends FoundryBase {
 		let receipt = await tx.wait();
 		let args = {gas: receipt.gasUsed, ...extra};
 		let contract = this.accounts.get(receipt.to);
-		if (!silent) {
+		if (!silent && this.infoLog) {
 			if (contract instanceof ethers.ethers.BaseContract) {
 				let desc = contract.interface.parseTransaction(tx);
 				Object.assign(args, desc.args.toObject());
-				this.infoLog?.(TAG_TX, this.pretty(receipt.from), `${contract[_NAME]}.${desc.signature}`, this.pretty(args));
+				this.infoLog(TAG_TX, this.pretty(receipt.from), `${contract[_NAME]}.${desc.signature}`, this.pretty(args));
 				this._dump_logs(contract.interface, receipt);
 			} else {
-				this.infoLog?.(TAG_TX, this.pretty(receipt.from), '>>', this.pretty(receipt.to), this.pretty(args));
+				this.infoLog(TAG_TX, this.pretty(receipt.from), '>>', this.pretty(receipt.to), this.pretty(args));
 			}
 		}
 		return receipt;
 	}
 	_dump_logs(abi, receipt) {
-		const {infoLog} = this;
-		if (!infoLog) return;
  		for (let x of receipt.logs) {
 			let log = abi.parseLog(x);
 			if (!log) {
@@ -661,7 +716,7 @@ class Foundry extends FoundryBase {
 				*/
 			}
 			if (log) {
-				infoLog(TAG_EVENT, log.signature, this.pretty(log.args.toObject()));
+				this.infoLog(TAG_EVENT, log.signature, this.pretty(log.args.toObject()));
 			}
 		}
 	}
@@ -676,16 +731,14 @@ class Foundry extends FoundryBase {
 		this.accounts.set(c.target, c);
 		return c;
 	}
-	async deploy({from, args = [], silent, ...artifactLike}) {
+	async deploy({from, args = [], libs = {}, silent, ...artifactLike}) {
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);
-		let {abi, ...artifact} = await this.resolveArtifact(artifactLike);
-		let bytecode = ethers.ethers.getBytes(artifact.bytecode);
-		if (!bytecode.length) throw error_with('no bytecode', artifact);
+		let {abi, links, bytecode: bytecode0, ...artifact} = await this.resolveArtifact(artifactLike);
+		let {bytecode, linked} = this.linkBytecode(bytecode0, links, libs);
 		let factory = new ethers.ethers.ContractFactory(abi, bytecode, w);
 		let unsigned = await factory.getDeployTransaction(...args);
 		let tx = await w.sendTransaction(unsigned);
 		let receipt = await tx.wait();
-
 		let c = new ethers.ethers.Contract(receipt.contractAddress, abi, w);
 		c[_NAME] = `${artifact.contract}<${take_hash(c.target)}>`; // so we can deploy the same contract multiple times
 		c[_OWNER] = this;
@@ -706,8 +759,21 @@ class Foundry extends FoundryBase {
 			}
 			bucket.set(ethers.ethers.id(e.format('sighash')), abi);
 		});
-		if (!silent) {
-			this.infoLog?.(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), `${ansi('33', receipt.gasUsed)}gas ${ansi('33', code.length)}bytes`); // {address, gas: receipt.gasUsed, size: code.length});
+		if (!silent && this.infoLog) {
+			// let stats = {
+			// 	gas: Number(receipt.gasUsed),
+			// 	bytes: code.length,
+			// };
+			let stats = [
+				`${ansi('33', receipt.gasUsed)}gas`, 
+				`${ansi('33', code.length)}bytes`
+			];
+			if (Object.keys(linked).length) {
+				//stats.links = Object.fromEntries(links.map(x => [x.contract, x.address]));
+				stats.push(this.pretty(linked));
+			}
+			 // {address, gas: receipt.gasUsed, size: code.length});
+			this.infoLog(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), ...stats);
 			this._dump_logs(abi, receipt);
 		}
 		return c;
@@ -716,6 +782,18 @@ class Foundry extends FoundryBase {
 
 function filter_errors(errors) {
 	return errors.filter(x => x.severity === 'error');
+}
+
+function extract_links(linkReferences) {
+	return Object.entries(linkReferences).flatMap(([file, links]) => {
+		return Object.entries(links).map(([contract, ranges]) => {
+			let offsets = ranges.map(({start, length}) => {
+				if (length != 20) throw error_with(`expected 20 bytes`, {file, contract, start, length});
+				return start;
+			});
+			return {file, contract, offsets};
+		});
+	});
 }
 
 function split(s) {
