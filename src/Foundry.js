@@ -40,7 +40,6 @@ function strip_ansi(s) {
 
 const TAG_START   = ansi('93', 'LAUNCH');
 const TAG_DEPLOY  = ansi('33', 'DEPLOY');
-const TAG_LINKER  = ansi('34', 'LINKER');
 const TAG_TX      = ansi('33', '    TX');
 const TAG_EVENT   = ansi('36', ' EVENT');
 const TAG_CONSOLE = ansi('96', '   LOG');
@@ -59,7 +58,7 @@ function take_hash(s) {
 	return s.slice(2, 10);
 }
 
-function path_from_cid(cid) {
+function parse_cid(cid) {
 	let pos = cid.lastIndexOf(':');
 	let contract;
 	if (pos == -1) {
@@ -68,27 +67,37 @@ function path_from_cid(cid) {
 		contract = remove_sol_ext(cid.slice(pos + 1));
 		cid = cid.slice(0, pos);
 	}
-	let path = cid.split(PATH_SEP);
-	path.push(contract);
-	return path.reverse();
+	let path = cid.split(PATH_SEP).reverse();
+	return {contract, path};
 }
 
 class ContractMap {
 	constructor() {
-		this.values = [];
+		this.map = new Map();
 	}
 	add(cid, value) {
-		this.values.push({path: path_from_cid(cid), value});
+		let {contract, path} = parse_cid(cid);
+		let bucket = this.map.get(contract);
+		if (!bucket) {
+			bucket = [];
+			this.map.set(contract, bucket);
+		}
+		bucket.push({path, value});
 	}
 	find(cid) {
-		let path = path_from_cid(cid);
-		for (let n = 1; n < path.length; n++) {
-			let prefix = path.slice(0, n).join(PATH_SEP);
-			let matched = this.values.filter(x => x.path.slice(0, n).join(PATH_SEP) === prefix);
-			if (!matched.length) break; 
-			if (matched.length == 1) return [prefix, matched[0].value];
+		let {contract, path} = parse_cid(cid);
+		let bucket = this.map.get(contract);
+		if (bucket) {
+			let i = 0;
+			for (; bucket.length > 1 && i < path.length; i++) {
+				bucket = bucket.filter(x => x.path[i] === path[i]);
+			}
+			if (bucket.length == 1) {
+				let cid = i ? `${path.slice(0, i).reverse().join(PATH_SEP)}:${contract}` : contract;
+				return [cid, bucket[0].value];
+			}
 		}
-		return {};
+		return [];
 	}
 }
 
