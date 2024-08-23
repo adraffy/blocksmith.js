@@ -40,10 +40,10 @@ function strip_ansi(s) {
 
 const TAG_START   = ansi('93', 'LAUNCH');
 const TAG_DEPLOY  = ansi('33', 'DEPLOY');
-const TAG_TX      = ansi('33', '    TX');
-const TAG_EVENT   = ansi('36', ' EVENT');
-const TAG_CONSOLE = ansi('96', '   LOG');
-const TAG_STOP    = ansi('93', '  STOP'); 
+const TAG_TX      = ansi('33', 'TX');
+const TAG_EVENT   = ansi('36', 'EVENT');
+const TAG_CONSOLE = ansi('96', 'LOG');
+const TAG_STOP    = ansi('93', 'STOP'); 
 
 const DEFAULT_WALLET = 'admin';
 const DEFAULT_PROFILE = 'default';
@@ -384,7 +384,13 @@ export class Foundry extends FoundryBase {
 			if (chain) args.push('--chain-id', chain);
 			if (blockSec) args.push('--block-time', blockSec);
 			if (infiniteCallGas) {
-				args.push('--disable-block-gas-limit');
+				//args.push('--disable-block-gas-limit');
+				// https://github.com/foundry-rs/foundry/pull/6955
+				// currently bugged
+				// 20240819: still bugged
+				// https://github.com/foundry-rs/foundry/pull/8274 
+				//args.push('--disable-block-gas-limit');
+				args.push('--gas-limit', '99999999999999999999999')
 			} else if (gasLimit) {
 				args.push('--gas-limit', gasLimit);
 			}
@@ -464,7 +470,7 @@ export class Foundry extends FoundryBase {
 				if (infoLog) {
 					const t = Date.now();
 					infoLog(TAG_START, self.pretty({chain, endpoint, wallets}));
-					proc.once('exit', () => infoLog(TAG_STOP, `${Date.now() - t}ms`)); // TODO fix me
+					proc.once('exit', () => infoLog(TAG_STOP, `${ansi('33', Date.now() - t)}ms`)); // TODO fix me
 				}
 				ful(self);
 			}
