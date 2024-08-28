@@ -495,9 +495,14 @@ class Foundry extends FoundryBase {
 				// https://github.com/foundry-rs/foundry/pull/6955
 				// currently bugged
 				// 20240819: still bugged
-				// https://github.com/foundry-rs/foundry/pull/8274 
-				//args.push('--disable-block-gas-limit');
-				args.push('--gas-limit', '99999999999999999999999');
+				// https://github.com/foundry-rs/foundry/pull/8274
+				// 20240827: yet another bug
+				// https://github.com/foundry-rs/foundry/issues/8759
+				if (fork) {
+					args.push('--disable-block-gas-limit');
+				} else {
+					args.push('--gas-limit', '99999999999999999999999');
+				}
 			} else if (gasLimit) {
 				args.push('--gas-limit', gasLimit);
 			}
