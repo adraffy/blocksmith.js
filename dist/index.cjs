@@ -593,6 +593,7 @@ class Foundry extends FoundryBase {
 	constructor() {
 		super();
 		this.accounts = new Map();
+		this.write_map = new Map();
 		this.event_map = new Map();
 		this.error_map = new Map();
 		this.wallets = {};
@@ -701,43 +702,67 @@ class Foundry extends FoundryBase {
 			}
 		}
 	}
+	parseTransaction(tx) {
+		let bucket = this.write_map.get(tx.data?.slice(0, 10));
+		if (!bucket) return;
+		for (let abi of bucket.values()) {
+			let desc = abi.parseTransaction(tx);
+			if (desc) return desc;
+		}
+	}
 	async confirm(p, {silent, ...extra} = {}) {
 		let tx = await p;
 		let receipt = await tx.wait();
 		let args = {gas: receipt.gasUsed, ...extra};
-		let contract = this.accounts.get(receipt.to);
 		if (!silent && this.infoLog) {
-			if (contract instanceof ethers.ethers.BaseContract) {
-				let desc = contract.interface.parseTransaction(tx);
+			// let contract = this.accounts.get(receipt.to);
+			// if (contract instanceof ethers.BaseContract) {
+
+			// }
+			let desc = this.parseTransaction(tx);
+			let action;
+			if (desc) {
 				Object.assign(args, desc.args.toObject());
-				this.infoLog(TAG_TX, this.pretty(receipt.from), `${contract[_NAME]}.${desc.signature}`, this.pretty(args));
-				this._dump_logs(contract.interface, receipt);
+				action = desc.signature;
+			} else if (tx.data?.length >= 10) {
+				action = ansi('90', tx.data.slice(0, 10));
+				if (tx.data.length > 10) {
+					args.calldata = '0x' + tx.data.slice(10);
+				}
+			}
+			if (tx.value > 0) {
+				args.value = tx.value;
+			}
+			if (action) {
+				this.infoLog(TAG_TX, this.pretty(receipt.from), '>>', this.pretty(receipt.to), action, this.pretty(args));
 			} else {
 				this.infoLog(TAG_TX, this.pretty(receipt.from), '>>', this.pretty(receipt.to), this.pretty(args));
 			}
+			this._dump_logs(receipt);
 		}
 		return receipt;
 	}
-	_dump_logs(abi, receipt) {
+	_dump_logs(receipt) {
  		for (let x of receipt.logs) {
-			let log = abi.parseLog(x);
-			if (!log) {
-				// TODO: remove fastpast since this is probably better
-				let abi = this.event_map.get(x.topics[0]);
-				if (abi) {
-					log = abi.parseLog(x);
-				}
-				/*
-				for (let c of this.accounts.values()) {
-					if (c instanceof ethers.BaseContract) {
-						log = c.interface.parseLog(x);
-						if (log) break;
-					}
-				}
-				*/
+			let abi = this.event_map.get(x.topics[0]);
+			let event;
+			if (abi) {
+				event = abi.parseLog(x);
 			}
-			if (log) {
-				this.infoLog(TAG_EVENT, log.signature, this.pretty(log.args.toObject()));
+			/*
+			for (let c of this.accounts.values()) {
+				if (c instanceof ethers.BaseContract) {
+					log = c.interface.parseLog(x);
+					if (log) break;
+				}
+			}
+			*/
+			if (event) {
+				if (event.args.length) {
+					this.infoLog(TAG_EVENT, event.signature, this.pretty(event.args.toObject()));
+				} else {
+					this.infoLog(TAG_EVENT, event.signature);
+				}
 			}
 		}
 	}
@@ -769,8 +794,16 @@ class Foundry extends FoundryBase {
 
 		let code = ethers.ethers.getBytes(await this.provider.getCode(c.target));
 		//c.__bytecode = code;
-
 		this.accounts.set(c.target, c);
+		abi.forEachFunction(f => {
+			if (f.constant) return;
+			let bucket = this.write_map.get(f.selector);
+			if (!bucket) {
+				bucket = new Map();
+				this.write_map.set(f.selector, bucket);
+			}
+			bucket.set(f.format('sighash'), abi);
+		});
 		abi.forEachEvent(e => this.event_map.set(e.topicHash, abi));
 		abi.forEachError(e => {
 			let bucket = this.error_map.get(e.selector);
@@ -795,7 +828,7 @@ class Foundry extends FoundryBase {
 			}
 			 // {address, gas: receipt.gasUsed, size: code.length});
 			this.infoLog(TAG_DEPLOY, this.pretty(w), artifact.origin, this.pretty(c), ...stats);
-			this._dump_logs(abi, receipt);
+			this._dump_logs(receipt);
 		}
 		return c;
 	}

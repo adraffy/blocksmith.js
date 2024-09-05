@@ -23,7 +23,7 @@
 * [resolverworks/**TheOffchainResolver.sol**](https://github.com/resolverworks/TheOffchainResolver.sol/blob/main/test/test.js)
 * [resolverworks/**XCTENS.sol**](https://github.com/resolverworks/XCTENS.sol/blob/main/test/test.js)
 * [resolverworks/**OffchainNext.sol**](https://github.com/resolverworks/OffchainNext.sol/blob/main/test/test.js)
-* [unruggable-labs/**evmgateway-v2**](https://github.com/unruggable-labs/evmgateway-v2/tree/main/v2)
+* [unruggable-labs/**evmgateway-v2**](https://github.com/unruggable-labs/evmgateway-v2/)
 * [unruggable-labs/**Storage.sol**](https://github.com/unruggable-labs/Storage.sol)
 * [adraffy/**CCIPRewriter.sol**](https://github.com/adraffy/CCIPRewriter.sol)
 * [adraffy/**punycode.sol**](https://github.com/adraffy/punycode.sol)
