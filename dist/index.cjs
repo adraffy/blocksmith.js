@@ -215,23 +215,40 @@ class ContractMap {
 // 	return promise.finally(() => clearTimeout(timer));
 // }
 
+function join_chunks(chunks) {
+	// 20240905: bun bug on mac
+	// https://github.com/oven-sh/bun/issues/13755
+	// this fix is absolute garbage
+	// alternative: assume json, check for leading curly: /^\s*{/
+	if (process.isBun && chunks.length > 1 && chunks[0].length != 262144) {
+		let chunk = chunks[0];
+		chunks[0] = chunks[1];
+		chunks[1] = chunk;
+		//console.log('out of order');
+	}
+	return Buffer.concat(chunks).toString('utf8');
+}
+
 async function exec_json(cmd, args, env, log) {
 	let timer;
-	if (log) setTimeout(() => log(cmd, args), 5000); // TODO: make this customizable
-	return new Promise((ful, rej) => {
-		let proc = node_child_process.spawn(cmd, args, {encoding: 'utf8', env});
-		let stdout = '';
-		let stderr = '';
-		proc.stderr.on('data', chunk => stderr += chunk);
-		proc.stdout.on('data', chunk => stdout += chunk);
+	if (log) {
+		// TODO: make this customizable
+		timer = setTimeout(() => log(cmd, args), 3000);
+	}	return new Promise((ful, rej) => {
+		let proc = node_child_process.spawn(cmd, args, {env});
+		let stdout = [];
+		let stderr = [];
+		proc.stdout.on('data', chunk => stdout.push(chunk));
+		proc.stderr.on('data', chunk => stderr.push(chunk));
 		proc.on('exit', code => {
 			try {
 				if (!code) {
-					return ful(JSON.parse(stdout));
+					return ful(JSON.parse(join_chunks(stdout)));
 				}
 			} catch (err) {
 			}
-			rej(error_with('expected JSON output', {code, error: strip_ansi(stderr), cmd, args}));
+			let error = strip_ansi(join_chunks(stderr));
+			rej(error_with(`expected JSON output: ${error}`, {code, error, cmd, args}));
 		});
 	}).finally(() => clearTimeout(timer));
 }
