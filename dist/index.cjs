@@ -232,8 +232,6 @@ async function exec_json(cmd, args, env, log) {
 	let temp_dir;
 	let temp_fh;
 	try {
-		//let temp_dir = join(tmpdir(), TMP_DIR_NAME);
-		//await mkdir(temp_dir, {recursive: true});
 		temp_dir = await promises.mkdtemp(node_path.join(node_os.tmpdir(), 'blocksmith-'));
 		let temp_file = node_path.join(temp_dir, 'stdout.txt');
 		temp_fh = await promises.open(temp_file, 'w');
@@ -244,7 +242,7 @@ async function exec_json(cmd, args, env, log) {
 			});
 			let stderr = [];
 			proc.stderr.on('data', chunk => stderr.push(chunk));
-			proc.on('exit', code => {
+			proc.on('close', code => {
 				if (code) {
 					let error = Buffer.join(stderr).toString('utf8');
 					rej(new Error(`exit ${code}: ${strip_ansi(error)}`));
@@ -253,7 +251,12 @@ async function exec_json(cmd, args, env, log) {
 				}
 			});
 		});
-		await temp_fh.close();
+		try {
+			// how the fuck can this throw bad file descriptor if i opened it?! 
+			// https://github.com/oven-sh/bun/issues/4798
+			await temp_fh.close();
+		} catch (err) {
+		}
 		return JSON.parse(await promises.readFile(temp_file));
 	} catch (err) {
 		throw Object.assign(err, {cmd, args, env});
