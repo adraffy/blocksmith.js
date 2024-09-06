@@ -216,53 +216,56 @@ async function exec_json(cmd, args, env, log) {
 		// TODO: make this customizable
 		timer = setTimeout(() => log(cmd, args), 3000);
 	}
-	return new Promise((ful, rej) => {
-		// 20240905: bun bug
-		// https://github.com/oven-sh/bun/issues/13755
-		// this fix is absolute garbage
-		// idea#1: use chunks[0].length != 262144
-		// 20240905: doesn't work
-		// idea#2: assume json, check for leading curly: /^\s*{/
-		// if (process.isBun && stdout.length > 1 && stdout[0][0] !== 0x7B) {
-		// 	console.log('out of order', stdout.map(x => x.length));
-		// 	let chunk = stdout[0];
-		// 	stdout[0] = stdout[1];
-		// 	stdout[1] = chunk;
-		// }
-		// 20240905: just use file until theres a proper fix
-		let temp_file = node_path.join(node_os.tmpdir(), 'blocksmith', ethers.ethers.id(args.join()));
-		let temp_fd = node_fs.openSync(temp_file, 'w');
-		let proc = node_child_process.spawn(cmd, args, {env, encoding: 'utf8', stdio: ['ignore', temp_fd, 'pipe']});
-		//let stdout = [];
-		//let stderr = [];
-		//proc.stdout.on('data', chunk => stdout.push(chunk));
-		//proc.stderr.on('data', chunk => stderr.push(chunk));
-		let stderr = '';
-		proc.stderr.on('data', chunk => stderr += chunk);
-		proc.on('exit', code => {
-			let stdout;
-			try {
-				node_fs.closeSync(temp_fd);
-				if (!code) stdout = node_fs.readFileSync(temp_file);
-				node_fs.rmSync(temp_file);
-			} catch (ignored) {
-			}
-			let error;
-			try {
-				if (!code) {
-					return ful(JSON.parse(stdout));
+	// 20240905: bun bug
+	// https://github.com/oven-sh/bun/issues/13755
+	// this fix is absolute garbage
+	// idea#1: use chunks[0].length != 262144
+	// 20240905: doesn't work
+	// idea#2: assume json, check for leading curly: /^\s*{/
+	// if (process.isBun && stdout.length > 1 && stdout[0][0] !== 0x7B) {
+	// 	console.log('out of order', stdout.map(x => x.length));
+	// 	let chunk = stdout[0];
+	// 	stdout[0] = stdout[1];
+	// 	stdout[1] = chunk;
+	// }
+	// 20240905: just use file until theres a proper fix
+	let temp_dir;
+	let temp_fh;
+	try {
+		//let temp_dir = join(tmpdir(), TMP_DIR_NAME);
+		//await mkdir(temp_dir, {recursive: true});
+		temp_dir = await promises.mkdtemp(node_path.join(node_os.tmpdir(), 'blocksmith-'));
+		let temp_file = node_path.join(temp_dir, 'stdout.txt');
+		temp_fh = await promises.open(temp_file, 'w');
+		await new Promise((ful, rej) => {
+			let proc = node_child_process.spawn(cmd, args, {
+				env: {...process.env, ...env}, 
+				stdio: ['ignore', temp_fh.fd, 'pipe']
+			});
+			let stderr = [];
+			proc.stderr.on('data', chunk => stderr.push(chunk));
+			proc.on('exit', code => {
+				if (code) {
+					let error = Buffer.join(stderr).toString('utf8');
+					rej(new Error(`exit ${code}: ${strip_ansi(error)}`));
+				} else {
+					ful();
 				}
-				//error = strip_ansi(Buffer.concat(stderr).toString('utf8'));
-				error = strip_ansi(stderr);
-			} catch (err) {
-				error = err.message;
-			}
-			rej(error_with(`expected JSON output: ${error}`, {code, error, cmd, args}));
+			});
 		});
-	}).finally(() => clearTimeout(timer));
+		await temp_fh.close();
+		return JSON.parse(await promises.readFile(temp_file));
+	} catch (err) {
+		throw Object.assign(err, {cmd, args, env});
+	} finally {
+		clearTimeout(timer);
+		try {
+			// clean up since logs can be very large
+			await promises.rm(temp_dir, {recursive: true, force: true});
+		} catch (err) {
+		}
+	}
 }
-
-//export async function evaluate(`return (1)`, ['uint256']);
 
 async function compile(sol, {contract, foundry, optimize, smart = true} = {}) {
 	if (Array.isArray(sol)) {
@@ -281,7 +284,7 @@ async function compile(sol, {contract, foundry, optimize, smart = true} = {}) {
 			sol = `// SPDX-License-Identifier: UNLICENSED\n${sol}`;
 		}
 	}
-	let hash = take_hash(ethers.ethers.id(sol)); // TODO should this be more random
+	let hash = ethers.ethers.id(sol);
 	let root = node_path.join(await promises.realpath(node_os.tmpdir()), 'blocksmith', hash);
 	
 	await promises.rm(root, {recursive: true, force: true}); // better than --force 
@@ -295,10 +298,10 @@ async function compile(sol, {contract, foundry, optimize, smart = true} = {}) {
 		'build',
 		'--format-json',
 		'--root', root,
-		'--no-cache', // rmdir() so cache is useless
+		'--no-cache',
 	];
 	
-	let env = {...process.env, FOUNDRY_PROFILE: DEFAULT_PROFILE};
+	let env = {FOUNDRY_PROFILE: DEFAULT_PROFILE};
 	let config;
 	if (foundry) {
 		config = JSON.parse(JSON.stringify(foundry.config)); // structuredClone?
@@ -340,7 +343,7 @@ async function compile(sol, {contract, foundry, optimize, smart = true} = {}) {
 	}
 
 	let info = res.contracts[file]?.[contract]?.[0];
-	let origin = `InlineCode{${hash}}`;
+	let origin = `InlineCode{${take_hash(hash)}}`;
 	if (!info) {
 		for (let x of Object.values(res.contracts)) {
 			let c = x[contract];
@@ -360,7 +363,7 @@ async function compile(sol, {contract, foundry, optimize, smart = true} = {}) {
 	let links = extract_links(evm.bytecode.linkReferences);
 	//let deployedBytecode = '0x' + evm.deployedBytecode.object; // TODO: decide how to do this
 	let deployedByteCount = evm.deployedBytecode.object.length >> 1;
-	return {abi, bytecode, contract, origin, links, sol, deployedByteCount};
+	return {abi, bytecode, contract, origin, links, sol, deployedByteCount, root};
 }
 
 // should this be called Foundry?
@@ -392,7 +395,7 @@ class FoundryBase {
 		if (!profile) profile = this.profile();
 		let config;
 		try {
-			config = await exec_json(forge, ['config', '--root', root, '--json'], {...process.env, FOUNDRY_PROFILE: profile}, this.procLog);
+			config = await exec_json(forge, ['config', '--root', root, '--json'], {FOUNDRY_PROFILE: profile}, this.procLog);
 		} catch (err) {
 			throw error_with(`invalid ${CONFIG_NAME}`, {root, profile}, err);
 		}
@@ -402,7 +405,7 @@ class FoundryBase {
 		if (!force && this.built) return this.built;
 		let args = ['build', '--format-json', '--root', this.root];
 		if (force) args.push('--force');
-		let res = await exec_json(this.forge, args, {...process.env, FOUNDRY_PROFILE: this.profile}, this.procLog);
+		let res = await exec_json(this.forge, args, {FOUNDRY_PROFILE: this.profile}, this.procLog);
 		let errors = filter_errors(res.errors);
 		if (errors.length) {
 			throw error_with('forge build', {errors});
