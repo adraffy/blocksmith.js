@@ -1,6 +1,6 @@
 import {spawn} from 'node:child_process';
 import {ethers} from 'ethers';
-import {createWriteStream} from 'node:fs';
+import {createWriteStream, openSync, readFileSync, closeSync, rmSync} from 'node:fs';
 import {readFile, writeFile, rm, mkdir, access, realpath/*, utimes*/} from 'node:fs/promises';
 import {join, dirname, basename, sep as PATH_SEP} from 'node:path';
 import {tmpdir} from 'node:os';
@@ -101,45 +101,53 @@ class ContractMap {
 	}
 }
 
-// async function delayed_printer(promise, delay, fn) {
-// 	let timer = setTimeout(fn, delay);	
-// 	return promise.finally(() => clearTimeout(timer));
-// }
-
-function join_chunks(chunks) {
-	// 20240905: bun bug on mac
-	// https://github.com/oven-sh/bun/issues/13755
-	// this fix is absolute garbage
-	// alternative: assume json, check for leading curly: /^\s*{/
-	if (process.isBun && chunks.length > 1 && chunks[0].length != 262144) {
-		let chunk = chunks[0];
-		chunks[0] = chunks[1];
-		chunks[1] = chunk;
-		//console.log('out of order');
-	}
-	return Buffer.concat(chunks).toString('utf8');
-}
-
 async function exec_json(cmd, args, env, log) {
 	let timer;
 	if (log) {
 		// TODO: make this customizable
 		timer = setTimeout(() => log(cmd, args), 3000);
-	}; 
+	}
 	return new Promise((ful, rej) => {
-		let proc = spawn(cmd, args, {env});
-		let stdout = [];
-		let stderr = [];
-		proc.stdout.on('data', chunk => stdout.push(chunk));
-		proc.stderr.on('data', chunk => stderr.push(chunk));
+		// 20240905: bun bug
+		// https://github.com/oven-sh/bun/issues/13755
+		// this fix is absolute garbage
+		// idea#1: use chunks[0].length != 262144
+		// 20240905: doesn't work
+		// idea#2: assume json, check for leading curly: /^\s*{/
+		// if (process.isBun && stdout.length > 1 && stdout[0][0] !== 0x7B) {
+		// 	console.log('out of order', stdout.map(x => x.length));
+		// 	let chunk = stdout[0];
+		// 	stdout[0] = stdout[1];
+		// 	stdout[1] = chunk;
+		// }
+		// 20240905: just use file until theres a proper fix
+		let temp_file = join(tmpdir(), 'blocksmith', ethers.id(args.join()));
+		let temp_fd = openSync(temp_file, 'w');
+		let proc = spawn(cmd, args, {env, encoding: 'utf8', stdio: ['ignore', temp_fd, 'pipe']});
+		//let stdout = [];
+		//let stderr = [];
+		//proc.stdout.on('data', chunk => stdout.push(chunk));
+		//proc.stderr.on('data', chunk => stderr.push(chunk));
+		let stderr = '';
+		proc.stderr.on('data', chunk => stderr += chunk);
 		proc.on('exit', code => {
+			let stdout;
+			try {
+				closeSync(temp_fd);
+				if (!code) stdout = readFileSync(temp_file);
+				rmSync(temp_file);
+			} catch (ignored) {
+			}
+			let error;
 			try {
 				if (!code) {
-					return ful(JSON.parse(join_chunks(stdout)));
+					return ful(JSON.parse(stdout));
 				}
+				//error = strip_ansi(Buffer.concat(stderr).toString('utf8'));
+				error = strip_ansi(stderr);
 			} catch (err) {
+				error = err.message;
 			}
-			let error = strip_ansi(join_chunks(stderr));
 			rej(error_with(`expected JSON output: ${error}`, {code, error, cmd, args}));
 		});
 	}).finally(() => clearTimeout(timer));
