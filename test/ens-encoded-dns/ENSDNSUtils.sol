@@ -49,8 +49,7 @@ library ENSDNSUtils {
 
 	function dnsEncode(string memory ens) internal pure returns (bytes memory dns) {
 		unchecked {
-			uint256 n;
-			assembly { n := mload(ens) }
+			uint256 n = bytes(ens).length;
 			if (n == 0) return hex'00'; // root
 			dns = new bytes(n + 2); // always 2-longer
 			uint256 w;

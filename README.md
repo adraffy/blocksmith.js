@@ -2,7 +2,7 @@
 
 ⚠️ This repo is under active development!
 
-`$ npm i @adraffy/blocksmith` [&check;](https://www.npmjs.com/package/@adraffy/blocksmith)
+`npm i @adraffy/blocksmith` [&check;](https://www.npmjs.com/package/@adraffy/blocksmith)
 
 * see [**types**](./dist/index.d.ts) / designed for [Foundry](https://github.com/foundry-rs/foundry) + [ethers](https://github.com/ethers-io/ethers.js).
 * compatible with any async test runner, including [node:test](https://nodejs.org/api/test.html)

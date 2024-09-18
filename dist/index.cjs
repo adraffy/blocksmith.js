@@ -211,11 +211,7 @@ class ContractMap {
 }
 
 async function exec_json(cmd, args, env, log) {
-	let timer;
-	if (log) {
-		// TODO: make this customizable
-		timer = setTimeout(() => log(cmd, args), 3000);
-	}
+	log?.(cmd, args, env);
 	// 20240905: bun bug
 	// https://github.com/oven-sh/bun/issues/13755
 	// this fix is absolute garbage
@@ -229,44 +225,34 @@ async function exec_json(cmd, args, env, log) {
 	// 	stdout[1] = chunk;
 	// }
 	// 20240905: just use file until theres a proper fix
-	let temp_dir;
-	let temp_fh;
+	// https://github.com/oven-sh/bun/issues/4798
+	// 20240914: had to revert this fix as it causes more bugs than it fixes
+	// https://github.com/oven-sh/bun/issues/13972
 	try {
-		temp_dir = await promises.mkdtemp(node_path.join(node_os.tmpdir(), 'blocksmith-'));
-		let temp_file = node_path.join(temp_dir, 'stdout.txt');
-		temp_fh = await promises.open(temp_file, 'w');
-		await new Promise((ful, rej) => {
+		return JSON.parse(await new Promise((ful, rej) => {
 			let proc = node_child_process.spawn(cmd, args, {
 				env: {...process.env, ...env}, 
-				stdio: ['ignore', temp_fh.fd, 'pipe']
+				stdio: ['ignore', 'pipe', 'pipe'],
 			});
+			let stdout = [];
 			let stderr = [];
+			proc.stdout.on('data', chunk => stdout.push(chunk));
 			proc.stderr.on('data', chunk => stderr.push(chunk));
 			proc.on('close', code => {
 				if (code) {
-					let error = Buffer.join(stderr).toString('utf8');
-					rej(new Error(`exit ${code}: ${strip_ansi(error)}`));
+					let error = Buffer.concat(stderr).toString('utf8');
+					error = strip_ansi(error);
+					error = error.replaceAll(/^Error:/g, '');
+					error = error.trim();
+					// 20240916: put more info in message since bun errors are dogshit
+					rej(new Error(`${cmd}: ${error} (code=${code})`));
 				} else {
-					ful();
+					ful(Buffer.concat(stdout));
 				}
 			});
-		});
-		try {
-			// how the fuck can this throw bad file descriptor if i opened it?! 
-			// https://github.com/oven-sh/bun/issues/4798
-			await temp_fh.close();
-		} catch (err) {
-		}
-		return JSON.parse(await promises.readFile(temp_file));
+		}));
 	} catch (err) {
 		throw Object.assign(err, {cmd, args, env});
-	} finally {
-		clearTimeout(timer);
-		try {
-			// clean up since logs can be very large
-			await promises.rm(temp_dir, {recursive: true, force: true});
-		} catch (err) {
-		}
 	}
 }
 
@@ -339,7 +325,7 @@ async function compile(sol, {contract, foundry, optimize, smart = true} = {}) {
 	await promises.writeFile(config_file, encode({profile: {[DEFAULT_PROFILE]: config}}));
 	args.push('--config-path', config_file);
 
-	let res = await exec_json(foundry?.forge ?? 'forge', args, env);
+	let res = await exec_json(foundry?.forge ?? 'forge', args, env, foundry?.procLog);
 	let errors = filter_errors(res.errors);
 	if (errors.length) {
 		throw error_with('forge build', {sol, errors});
@@ -429,7 +415,7 @@ class FoundryBase {
 				return out_file;
 			} catch (err) {
 				let parent = node_path.dirname(path);
-				if (parent === path) throw error_with('unknown contract', {file, contract});
+				if (parent === path) throw error_with(`unknown contract: ${file}:${contract}`, {file, contract});
 				path = parent;
 			}
 		}
@@ -541,11 +527,14 @@ class Foundry extends FoundryBase {
 				args.push('--gas-limit', gasLimit);
 			}
 			if (fork) args.push('--fork-url', fork);
-			let proc = node_child_process.spawn(anvil, args, {env: {...process.env, RUST_LOG: 'node=info'}});
-			proc.stdin.end();
+			let proc = node_child_process.spawn(anvil, args, {
+				env: {...process.env, RUST_LOG: 'node=info'},
+				stdio: ['ignore', 'pipe', 'pipe'],
+			});
 			const fail = data => {
 				proc.kill();
-				rej(error_with('launch', {args, stderr: data.toString()}));
+				let error = strip_ansi(data.toString()).trim();
+				rej(error_with('launch', {args, error}));
 			};
 			proc.stderr.once('data', fail);
 			let lines = [];
