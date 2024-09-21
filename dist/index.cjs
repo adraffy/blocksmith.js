@@ -228,11 +228,13 @@ async function exec_json(cmd, args, env, log) {
 	// https://github.com/oven-sh/bun/issues/4798
 	// 20240914: had to revert this fix as it causes more bugs than it fixes
 	// https://github.com/oven-sh/bun/issues/13972
+	// 20240921: another attempt to fix this bun shit
+	// just yolo swap the buffers if it parses incorrectly
 	try {
-		return JSON.parse(await new Promise((ful, rej) => {
+		let stdout = await new Promise((ful, rej) => {
 			let proc = node_child_process.spawn(cmd, args, {
 				env: {...process.env, ...env}, 
-				stdio: ['ignore', 'pipe', 'pipe'],
+				stdio: ['pipe', 'pipe', 'pipe'],
 			});
 			let stdout = [];
 			let stderr = [];
@@ -247,10 +249,22 @@ async function exec_json(cmd, args, env, log) {
 					// 20240916: put more info in message since bun errors are dogshit
 					rej(new Error(`${cmd}: ${error} (code=${code})`));
 				} else {
-					ful(Buffer.concat(stdout));
+					//ful(Buffer.concat(stdout));
+					ful(stdout);
 				}
 			});
-		}));
+		});
+		try {
+			return JSON.parse(Buffer.concat(stdout));
+		} catch (bug) {
+			if (stdout.length > 1) {
+				let v = stdout.slice();
+				v[0] = stdout[1];
+				v[1] = stdout[0];
+				return JSON.parse(Buffer.concat(v));
+			}
+			throw bug;
+		}
 	} catch (err) {
 		throw Object.assign(err, {cmd, args, env});
 	}
