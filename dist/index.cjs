@@ -234,7 +234,7 @@ async function exec_json(cmd, args, env, log) {
 		let stdout = await new Promise((ful, rej) => {
 			let proc = node_child_process.spawn(cmd, args, {
 				env: {...process.env, ...env}, 
-				stdio: ['pipe', 'pipe', 'pipe'],
+				stdio: ['ignore', 'pipe', 'pipe'],
 			});
 			let stdout = [];
 			let stderr = [];
