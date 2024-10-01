@@ -531,6 +531,7 @@ export class Foundry extends FoundryBase {
 					for (let abi of bucket.values()) {
 						let error = abi.makeError(data, tx);
 						if (error.reason) {
+							error.invocation ??= error0.invocation;
 							return error;
 						}
 					}
