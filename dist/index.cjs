@@ -630,8 +630,23 @@ class Foundry extends FoundryBase {
 		this.accounts = new Map();
 		this.write_map = new Map();
 		this.event_map = new Map();
-		this.error_map = new Map();
+		const error_map = this.error_map = new Map();
 		this.wallets = {};
+		this.error_fixer = function(data, tx) {
+			const error0 = this.__old(data, tx);
+			if (!error0.reason) {
+				let bucket = error_map.get(ethers.ethers.dataSlice(data, 0, 4));
+				if (bucket) {
+					for (let abi of bucket.values()) {
+						let error = abi.makeError(data, tx);
+						if (error.reason) {
+							return error;
+						}
+					}
+				}
+			}
+			return error0;
+		};
 	}
 	async shutdown() {
 		return new Promise(ful => {
@@ -802,6 +817,7 @@ class Foundry extends FoundryBase {
 		}
 	}
 	async deployed({from, at, ...artifactLike}) {
+		// TODO: expose this
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);
 		let {abi, ...artifact} = await this.resolveArtifact(artifactLike);
 		let c = new ethers.ethers.Contract(at, abi, w);
@@ -812,9 +828,14 @@ class Foundry extends FoundryBase {
 		this.accounts.set(c.target, c);
 		return c;
 	}
-	async deploy({from, args = [], libs = {}, silent, ...artifactLike}) {
+	async deploy({from, args = [], libs = {}, abis = [], silent, parseAllErrors = true, ...artifactLike}) {
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);
 		let {abi, links, bytecode: bytecode0, ...artifact} = await this.resolveArtifact(artifactLike);
+		abi = merge_abi(abi, abis);
+		if (parseAllErrors) {
+			abi.__old = abi.makeError.bind(abi);
+			abi.makeError = this.error_fixer;
+		}
 		let {bytecode, linked} = this.linkBytecode(bytecode0, links, libs);
 		let factory = new ethers.ethers.ContractFactory(abi, bytecode, w);
 		let unsigned = await factory.getDeployTransaction(...args);
@@ -867,6 +888,22 @@ class Foundry extends FoundryBase {
 		}
 		return c;
 	}
+
+}
+
+function merge_abi(abi, things) {
+	if (!things.length) return abi;
+	let fragments = [...abi.fragments];
+	for (let x of things) {
+		if (x instanceof ethers.ethers.BaseContract) {
+			fragments.push(...x.interface.fragments);
+		} else if (x instanceof ethers.ethers.Fragment) {
+			fragments.push(x);
+		} else {
+			fragments.push(...ethers.ethers.Interface.from(x).fragments);
+		}
+	}
+	return new ethers.ethers.Interface(fragments);
 }
 
 function filter_errors(errors) {

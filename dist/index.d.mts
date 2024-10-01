@@ -1,6 +1,6 @@
 import {
 	WebSocketProvider, BaseWallet, 
-	Contract, Interface,
+	Contract, Interface, InterfaceAbi, Fragment, 
 	TransactionReceipt, TransactionResponse, BigNumberish
 } from "ethers";
 import {ChildProcess} from "node:child_process";
@@ -42,7 +42,7 @@ type ArtifactLike = {
 	import?: string;
 	sol?: string;
 	file?: string;
-	abi?: Interface;
+	abi?: Interface | InterfaceAbi;
 	bytecode?: string,
 	contract?: string;
 	//[key: string]: any;
@@ -122,7 +122,9 @@ export class Foundry extends FoundryBase {
 		from?: WalletLike;
 		args?: any[];
 		libs?: {[cid: string]: string | DeployedContract};
+		abis?: (Interface | InterfaceAbi | Contract | Fragment)[];
 		silent?: boolean;
+		parseAllErrors?: boolean;
 	} & ArtifactLike): Promise<DeployedContract>;
 
 	// send a transaction promise and get a pretty print console log
