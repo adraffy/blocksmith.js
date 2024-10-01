@@ -384,7 +384,15 @@ export class FoundryBase {
 	// }
 }
 
+function has_key(x, key) {
+	return typeof x === 'object' && x !== null && key in x;
+}
+
 export class Foundry extends FoundryBase {
+	static owner(x) {
+		if (!has_key(x, _OWNER)) throw new TypeError(`expected Contract or Wallet`);
+		return x[_OWNER];
+	}
 	static async launch({
 		port = 0,
 		wallets = [DEFAULT_WALLET],

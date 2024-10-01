@@ -4,3 +4,6 @@ import './base.js';
 import './accounts.js';
 import './deploy/test.js';
 import './ens-encoded-dns/test.js';
+import './calls.js';
+import './console.js';
+import './merge.js';

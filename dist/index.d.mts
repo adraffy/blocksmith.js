@@ -85,6 +85,7 @@ export class FoundryBase {
 	readonly built?: BuildInfo;
 }
 export class Foundry extends FoundryBase {
+	static owner(x: DevWallet | DeployedContract): Foundry;
 	static launch(options?: {
 		port?: number;
 		chain?: number;

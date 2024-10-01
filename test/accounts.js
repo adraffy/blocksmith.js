@@ -44,4 +44,20 @@ test('Accounts', async T => {
 		assert(await foundry.provider.getBalance(w.address) === 0n);
 	});
 
+	await T.test('wallet name', async () => {
+		let foundry = await Foundry.launch({infoLog: false});
+		after(() => foundry.shutdown());
+		const name = 'raffy';
+		let w = await foundry.ensureWallet(name);
+		assert(w.toString(), name);
+	});
+
+	await T.test('wallet owner', async () => {
+		let foundry = await Foundry.launch({infoLog: false});
+		after(() => foundry.shutdown());
+		let w = await foundry.createWallet();
+		assert(Foundry.owner(w), foundry);
+	});
+
 });
+

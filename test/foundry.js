@@ -12,3 +12,21 @@ test('nextBlock', async () => {
 	let b1 = await foundry.provider.getBlockNumber();
 	assert(b0 + 1, b1);
 });
+
+test('contract name', async () => {
+	let foundry = await Foundry.launch({infoLog: false});
+	after(() => foundry.shutdown());
+	let contract = await foundry.deploy({
+		sol: `contract C {}`
+	})
+	assert(contract.toString(), 'C');
+});
+
+test('contract owner', async () => {
+	let foundry = await Foundry.launch({infoLog: false});
+	after(() => foundry.shutdown());
+	let contract = await foundry.deploy({
+		sol: `contract C {}`
+	})
+	assert(Foundry.owner(contract), foundry);
+});
