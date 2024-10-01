@@ -28,5 +28,5 @@ test('contract owner', async () => {
 	let contract = await foundry.deploy({
 		sol: `contract C {}`
 	})
-	assert(Foundry.owner(contract), foundry);
+	assert(Foundry.of(contract), foundry);
 });

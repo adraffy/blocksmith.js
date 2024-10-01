@@ -56,7 +56,7 @@ test('Accounts', async T => {
 		let foundry = await Foundry.launch({infoLog: false});
 		after(() => foundry.shutdown());
 		let w = await foundry.createWallet();
-		assert(Foundry.owner(w), foundry);
+		assert(Foundry.of(w), foundry);
 	});
 
 });

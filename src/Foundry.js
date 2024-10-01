@@ -389,7 +389,7 @@ function has_key(x, key) {
 }
 
 export class Foundry extends FoundryBase {
-	static owner(x) {
+	static of(x) {
 		if (!has_key(x, _OWNER)) throw new TypeError(`expected Contract or Wallet`);
 		return x[_OWNER];
 	}
@@ -408,7 +408,6 @@ export class Foundry extends FoundryBase {
 		...rest
 	} = {}) {
 		let self = await this.load(rest);
-
 		if (!infoLog) infoLog = undefined;
 		if (!procLog) procLog = undefined;
 		if (infoLog === true) infoLog = console.log.bind(console);
