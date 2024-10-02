@@ -1,6 +1,6 @@
 import {
 	WebSocketProvider, BaseWallet, 
-	Contract, Interface, InterfaceAbi, Fragment, JsonFragment,
+	Contract, Interface, Fragment, JsonFragment,
 	TransactionReceipt, TransactionResponse, TransactionDescription,
 	BigNumberish, BytesLike
 } from "ethers";
@@ -85,7 +85,7 @@ type FoundryEventMap = {
 	shutdown: [uptime: number];
 	tx: [tx: TransactionResponse, receipt: TransactionReceipt, desc?: TransactionDescription];
 	console: [line: string];
-	deploy: [contract: DeployedContract, code: Uint8Array];
+	deploy: [contract: DeployedContract];
 };
 
 export class FoundryBase extends EventEmitter<FoundryEventMap> {

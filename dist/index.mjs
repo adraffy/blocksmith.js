@@ -459,12 +459,12 @@ class FoundryBase extends EventEmitter {
 		let {import: imported, bytecode, abi, sol, file, contract, ...rest} = arg0;
 		if (imported) {
 			sol = `import "${imported}";`;
-			contract = remove_sol_ext(basename(imported));
+			contract ??= remove_sol_ext(basename(imported));
 			rest.autoHeader = true; // force it
 		}
 		if (bytecode) { // bytecode + abi
-			if (!contract) contract = 'Unnamed';
-			abi = ethers.Interface.from(abi || []);
+			contract ??= 'Unnamed';
+			abi = iface_from(abi ?? []);
 			return {abi, bytecode, contract, origin: 'Bytecode', links: []};
 		} else if (sol) { // sol code + contract?
 			return compile(sol, {contract, foundry: this, ...rest});
@@ -568,7 +568,10 @@ class Foundry extends FoundryBase {
 			} else if (gasLimit) {
 				args.push('--gas-limit', gasLimit);
 			}
-			if (fork) args.push('--fork-url', fork);
+			if (fork) {
+				fork = String(fork);
+				args.push('--fork-url', fork);
+			}
 			let proc = spawn(anvil, args, {
 				env: {...process.env, RUST_LOG: 'node=info'},
 				stdio: ['ignore', 'pipe', 'pipe'],
@@ -637,9 +640,7 @@ class Foundry extends FoundryBase {
 				port = parseInt(host.slice(host.lastIndexOf(':') + 1));
 				let provider = new ethers.WebSocketProvider(endpoint, chain, {staticNetwork: true});
 				//let provider = new ethers.IpcSocketProvider('/tmp/anvil.ipc', chain, {staticNetwork: true});
-				if (!chain) {
-					chain = parseInt(await provider.send('eth_chainId')); // determine chain id
-				}
+				chain ??= parseInt(await provider.send('eth_chainId')); // determine chain id
 				let automine = await provider.send('anvil_getAutomine');
 				if (automine) {
 					provider.destroy();
@@ -938,23 +939,17 @@ class Foundry extends FoundryBase {
 			bucket.set(ethers.id(e.format('sighash')), abi);
 		});
 		if (!silent && this.infoLog) {
-			// let stats = {
-			// 	gas: Number(receipt.gasUsed),
-			// 	bytes: code.length,
-			// };
 			let stats = [
 				`${ansi('33', receipt.gasUsed)}gas`, 
 				`${ansi('33', code.length)}bytes`
 			];
 			if (Object.keys(linked).length) {
-				//stats.links = Object.fromEntries(links.map(x => [x.contract, x.address]));
 				stats.push(this.pretty(linked));
 			}
-			 // {address, gas: receipt.gasUsed, size: code.length});
 			this.infoLog(TAG_DEPLOY, this.pretty(from), origin, this.pretty(c), ...stats);
 			this._dump_logs(receipt);
 		}
-		this.emit('deploy', c, code);
+		this.emit('deploy', c);
 		return c;
 	}
 	parseAllErrors(abi) {
