@@ -2,11 +2,16 @@ import {compile} from '../src/index.js';
 
 // TODO: fix me
 
+function deployedByteCount(bytecode) {
+	let pos = bytecode.indexOf('6080604', 4); // this is dogshit
+	return (bytecode.length - pos) >> 1;
+}
+
 async function compare(code) {
 	console.log(code);
 	for (let optimize of [false, 200, 9999]) {
-		let artifact = await compile(`contract Test { ${code} }`, {optimize});
-		console.log(artifact.deployedByteCount, optimize);
+		let {bytecode} = await compile(`contract Test { ${code} }`, {optimize});
+		console.log(deployedByteCount(bytecode), bytecode.length, optimize);
 	}
 }
 
@@ -25,3 +30,13 @@ await compare(`
 		return keccak256("chonk");
 	}
 `);
+
+
+console.log('\n[evm version]');
+console.log((await compile(`contract C {}`, {evmVersion: 'cancun'})).bytecode);
+console.log((await compile(`contract C {}`, {evmVersion: 'london'})).bytecode);
+
+
+console.log('\n[solc version]');
+console.log((await compile(`contract C {}`, {solcVersion: '0.8.23'})).bytecode);
+console.log((await compile(`contract C {}`, {solcVersion: '0.8.26'})).bytecode);

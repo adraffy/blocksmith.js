@@ -1,4 +1,4 @@
-import {Foundry} from '../src/index.js';
+import {Foundry, mergeABI} from '../src/index.js';
 
 const foundry = await Foundry.launch();
 
@@ -48,13 +48,14 @@ const things = [
 	await foundry.deploy({
 		sol: code('Default'), 
 		args: [A],
-		parseAllErrors: false,
-		abis: [A.interface]
 	}),
 ];
 
 for (let x of things) {
 	console.log(foundry.pretty(x), await x.test().catch(x => x.message));
 }
+
+console.log(mergeABI());
+console.log(mergeABI(A, ['function chonk() external']));
 
 await foundry.shutdown();

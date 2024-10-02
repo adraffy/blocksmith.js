@@ -1,19 +1,27 @@
 import {
 	WebSocketProvider, BaseWallet, 
-	Contract, Interface, InterfaceAbi, Fragment, 
-	TransactionReceipt, TransactionResponse, BigNumberish
+	Contract, Interface, InterfaceAbi, Fragment, JsonFragment,
+	TransactionReceipt, TransactionResponse, TransactionDescription,
+	BigNumberish, BytesLike
 } from "ethers";
+import {EventEmitter} from "node:events";
 import {ChildProcess} from "node:child_process";
 
 type DevWallet = BaseWallet & {
 	readonly __name: string;
 };
 type DeployedContract = Contract & {
-	readonly __receipt: TransactionReceipt;
-	readonly __artifact: Artifact;
-	//readonly __bytecode: Uint8Array;
 	readonly target: string;
+	readonly __receipt: TransactionReceipt;
+	readonly __info: {
+		readonly contract: string;
+		readonly origin: string;
+		readonly bytecode: Uint8Array;
+		readonly libs: {[cid: string]: string};
+		readonly from: DevWallet;
+	};
 };
+type InterfaceLike = Interface | Contract | (Fragment | JsonFragment | string)[];
 
 type ExternalLink = {
 	file: string;
@@ -23,37 +31,41 @@ type ExternalLink = {
 
 type PathLike = string | URL;
 type WalletLike = string | DevWallet;
-type BaseArtifact = {
-	readonly abi: Interface;
-	readonly bytecode: string;
+type CompiledArtifact =  {
 	readonly contract: string;
 	readonly origin: string;
+	readonly abi: Interface;
+	readonly bytecode: string;
 	readonly links: ExternalLink[];
 };
-type FileArtifact = BaseArtifact & {
+type FileArtifact = CompiledArtifact & {
 	readonly file: string;
 };
-type InlineArtifact = BaseArtifact & {
+type CodeArtifact = CompiledArtifact & {
 	readonly sol: string;
-	readonly deployedByteCount: number;
+	readonly root: string;
 };
-type Artifact = FileArtifact | InlineArtifact | BaseArtifact;
-type ArtifactLike = {
-	import?: string;
-	sol?: string;
-	file?: string;
-	abi?: Interface | InterfaceAbi;
-	bytecode?: string,
+type Artifact = CompiledArtifact | FileArtifact | CodeArtifact;
+type CompileOptions = {
+	optimize?: boolean | number;
+	solcVersion?: string;
+	evmVersion?: string;
+	viaIR?: boolean;
+	autoHeader?: boolean;
 	contract?: string;
-	//[key: string]: any;
 };
 
-export function compile(sol: string | string[], options?: {
-	contract?: string;
-	foundry?: Foundry;
-	optimize?: boolean | number;
-	//[key: string]: any;
-}): Promise<Artifact>;
+export function compile(
+	sol: string | string[], 
+	options?: { foundry?: Foundry; } & CompileOptions
+): Promise<CodeArtifact>;
+
+type ArtifactLike = 
+	| { import: string; contract?: string; } 
+	| { bytecode: string; abi?: InterfaceLike; contract?: string; } 
+	| ({ sol: string } & CompileOptions) 
+	| { file: string; contract?: string; };
+
 type ToConsoleLog = boolean | PathLike | ((line: string) => any);
 type WalletOptions = {
 	ether?: BigNumberish;
@@ -67,11 +79,21 @@ type FoundryBaseOptions = {
 	profile?: string; // default: "default"
 	forge?: string;
 };
-export class FoundryBase {
+
+type FoundryEventMap = {
+	built: [];
+	shutdown: [uptime: number];
+	tx: [tx: TransactionResponse, receipt: TransactionReceipt, desc?: TransactionDescription];
+	console: [line: string];
+	deploy: [contract: DeployedContract, code: Uint8Array];
+};
+
+export class FoundryBase extends EventEmitter<FoundryEventMap> {
 	static profile(): string;
 	static root(cwd?: PathLike): Promise<string>;
 	static load(options?: FoundryBaseOptions): Promise<FoundryBase>;
 	build(force?: boolean): Promise<BuildInfo>;
+	compile(sol: string | string[], options?: CompileOptions): Promise<CodeArtifact>;
 	find(options: {file: string, contract?: string}): Promise<string>;
 	readonly root: string;
 	readonly profile: string;
@@ -83,6 +105,9 @@ export class FoundryBase {
 	readonly anvil: string;
 	readonly forge: string;
 	readonly built?: BuildInfo;
+
+	on<E extends keyof FoundryEventMap>(name: E, fn: (...args: FoundryEventMap[E]) => any): this;
+	once<E extends keyof FoundryEventMap>(name: E, fn: (...args: FoundryEventMap[E]) => any): this;
 }
 export class Foundry extends FoundryBase {
 	static of(x: DevWallet | DeployedContract): Foundry;
@@ -108,8 +133,12 @@ export class Foundry extends FoundryBase {
 	readonly chain: number;
 	readonly port: number;
 	readonly automine: boolean;
+	readonly fork: string | undefined;
 
+	// note: these are silent fail on forks
 	nextBlock(blocks?: number): Promise<void>;
+	setStorageValue(address: string | DeployedContract, slot: BigNumberish, value: BigNumberish | Uint8Array): Promise<void>;
+	setStorageBytes(address: string | DeployedContract, slot: BigNumberish, value: BytesLike): Promise<void>;
 
 	// require a wallet
 	requireWallet(...wallets: (WalletLike | undefined)[]): DevWallet;
@@ -119,11 +148,11 @@ export class Foundry extends FoundryBase {
 	resolveArtifact(artifact: ArtifactLike): Promise<Artifact>;
 
 	// compile and deploy a contract, returns Contract with ABI
-	deploy(options: {
+	deploy(options: string | {
 		from?: WalletLike;
 		args?: any[];
 		libs?: {[cid: string]: string | DeployedContract};
-		abis?: (Interface | InterfaceAbi | Contract | Fragment)[];
+		abis?: InterfaceLike[];
 		silent?: boolean;
 		parseAllErrors?: boolean;
 	} & ArtifactLike): Promise<DeployedContract>;
@@ -134,9 +163,13 @@ export class Foundry extends FoundryBase {
 		[key: string]: any;
 	}): Promise<TransactionReceipt>;
 
+	parseAllErrors(iface: Interface): Interface;
+
 	// kill anvil
 	shutdown(): Promise<void>;
 }
+
+export function mergeABI(...abis: InterfaceLike[]): Interface;
 
 export class Node extends Map {
 	static root(tag?: string): Node;

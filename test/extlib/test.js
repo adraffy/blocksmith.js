@@ -27,4 +27,6 @@ let contract2 = await foundry.deploy({
 
 console.log(await contract2.chonk());
 
+console.log(contract2.__info.linked);
+
 foundry.shutdown();
