@@ -88,7 +88,7 @@ type FoundryEventMap = {
 	deploy: [contract: DeployedContract];
 };
 
-export class FoundryBase extends EventEmitter<FoundryEventMap> {
+export class FoundryBase extends EventEmitter { // <FoundryEventMap> {
 	static profile(): string;
 	static root(cwd?: PathLike): Promise<string>;
 	static load(options?: FoundryBaseOptions): Promise<FoundryBase>;

@@ -949,7 +949,7 @@ class Foundry extends FoundryBase {
 			this.infoLog(TAG_DEPLOY, this.pretty(from), origin, this.pretty(c), ...stats);
 			this._dump_logs(receipt);
 		}
-		this.emit('deploy', c);
+		this.emit('deploy', c); // tx, receipt?
 		return c;
 	}
 	parseAllErrors(abi) {

@@ -40,3 +40,8 @@ console.log((await compile(`contract C {}`, {evmVersion: 'london'})).bytecode);
 console.log('\n[solc version]');
 console.log((await compile(`contract C {}`, {solcVersion: '0.8.23'})).bytecode);
 console.log((await compile(`contract C {}`, {solcVersion: '0.8.26'})).bytecode);
+
+
+console.log('\n[via-ir]');
+console.log((await compile(`contract C {}`, {viaIR: false})).bytecode);
+console.log((await compile(`contract C {}`, {viaIR: true})).bytecode);
