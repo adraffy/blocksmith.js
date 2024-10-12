@@ -1,17 +1,15 @@
 import {
-	WebSocketProvider, BaseWallet, 
+	WebSocketProvider, Wallet,
 	Contract, Interface, Fragment, JsonFragment,
 	TransactionReceipt, TransactionResponse, TransactionDescription,
-	BigNumberish, BytesLike
+	BigNumberish, BytesLike,
+	ContractRunner
 } from "ethers";
 import {EventEmitter} from "node:events";
 import {ChildProcess} from "node:child_process";
 
-type DevWallet = BaseWallet & {
-	readonly __name: string;
-};
-type DeployedContract = Contract & {
-	readonly target: string;
+type DevWallet = Omit<Wallet, 'connect'>;
+type DeployedContract = Omit<Contract, 'connect' | 'target'> & {
 	readonly __receipt: TransactionReceipt;
 	readonly __info: {
 		readonly contract: string;
@@ -20,6 +18,10 @@ type DeployedContract = Contract & {
 		readonly libs: {[cid: string]: string};
 		readonly from: DevWallet;
 	};
+	// fix ethers
+	readonly target: string;
+	connect(wallet: DevWallet): DeployedContract;
+	attach(address: string): DeployedContract;
 };
 type InterfaceLike = Interface | Contract | (Fragment | JsonFragment | string)[];
 
