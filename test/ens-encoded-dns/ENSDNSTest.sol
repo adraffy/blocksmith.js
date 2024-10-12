@@ -10,6 +10,10 @@ contract ENSDNSTest {
 		return ENSDNSUtils.dnsDecode(dns);
 	}
 
+	function dnsDecodeUnsafe(bytes memory dns) external pure returns (string memory ens) {
+		return ENSDNSUtils.dnsDecodeUnsafe(dns);
+	}
+
 	function dnsEncode(string memory ens) external pure returns (bytes memory dns) {
 		return ENSDNSUtils.dnsEncode(ens);
 	}
