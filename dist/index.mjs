@@ -684,13 +684,16 @@ class Foundry extends FoundryBase {
 			}
 			return error0;
 		};
-	}
-	shutdown() {
-		return new Promise(ful => {
-			this.provider.destroy();
-			this.proc.once('exit', ful);
-			this.proc.kill();
-		});
+		this.shutdown = () => {
+			if (!this.killed) {
+				this.killed = new Promise(ful => {
+					this.provider.destroy();
+					this.proc.once('exit', ful);
+					this.proc.kill();
+				});
+			}
+			return this.killed;
+		};
 	}
 	nextBlock(n = 1) {
 		return this.provider.send('anvil_mine', [ethers.toBeHex(n)]);

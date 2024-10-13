@@ -211,8 +211,8 @@ export class Foundry extends FoundryBase {
 
 	parseAllErrors(iface: Interface): Interface;
 
-	// kill anvil
-	shutdown(): Promise<void>;
+	// kill anvil (this is a bound function)
+	shutdown: () => Promise<void>;
 }
 
 export function mergeABI(...abis: InterfaceLike[]): Interface;
