@@ -10,12 +10,24 @@ import {
 	TransactionDescription,
 	BigNumberish,
 	BytesLike,
+	BaseContract,
+	ContractInterface,
+	ContractEventName,
+	EventEmitterable,
 } from "ethers";
 import { EventEmitter } from "node:events";
 import { ChildProcess } from "node:child_process";
 
 type DevWallet = Omit<Wallet, "connect">;
-type DeployedContract = Omit<Contract, "target" | "connect" | "attach"> & {
+type DeployedBaseContract = Omit<
+	BaseContract,
+	"target" | "connect" | "attach"
+> & {
+	target: string;
+	connect(...args: Parameters<Contract["connect"]>): Contract;
+	attach(...args: Parameters<Contract["attach"]>): Contract;
+	waitForDeployment(): Promise<Contract>;
+} & {
 	readonly __receipt: TransactionReceipt;
 	readonly __info: {
 		readonly contract: string;
@@ -24,10 +36,11 @@ type DeployedContract = Omit<Contract, "target" | "connect" | "attach"> & {
 		readonly libs: { [cid: string]: string };
 		readonly from: DevWallet;
 	};
-	// fix ethers
-	readonly target: string;
-	connect(wallet: DevWallet): DeployedContract;
 };
+type DeployedContract = DeployedBaseContract &
+	Omit<ContractInterface, keyof DeployedBaseContract> &
+	EventEmitterable<ContractEventName>;
+
 type InterfaceLike =
 	| Interface
 	| Contract
@@ -123,6 +136,7 @@ export class FoundryBase extends EventEmitter {
 	readonly anvil: string;
 	readonly forge: string;
 	readonly built?: BuildInfo;
+	version(): Promise<string>;
 
 	on<E extends keyof FoundryEventMap>(
 		name: E,

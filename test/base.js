@@ -19,3 +19,7 @@ console.log(await FoundryBase.root());
 console.log(await f.find({file: 'Deploy'}));
 
 console.log(await f.resolveArtifact({file: 'Deploy'}));
+
+console.log(await f.version());
+
+//console.log(await f.exportArtifacts('chonk'));
