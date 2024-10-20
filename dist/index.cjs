@@ -212,7 +212,7 @@ class ContractMap {
 	}
 }
 
-async function exec_json(cmd, args, env, log) {
+async function exec(cmd, args, env, log, json = true) {
 	log?.(cmd, args, env);
 	// 20240905: bun bug
 	// https://github.com/oven-sh/bun/issues/13755
@@ -256,6 +256,9 @@ async function exec_json(cmd, args, env, log) {
 				}
 			});
 		});
+		if (!json) {
+			return Buffer.concat(stdout);
+		}
 		try {
 			return JSON.parse(Buffer.concat(stdout));
 		} catch (bug) {
@@ -354,7 +357,7 @@ async function compile(sol, options = {}) {
 	await promises.writeFile(config_file, encode({profile: {[DEFAULT_PROFILE]: config}}));
 	args.push('--config-path', config_file);
 
-	let res = await exec_json(foundry?.forge ?? 'forge', args, env, foundry?.procLog);
+	let res = await exec(foundry?.forge ?? 'forge', args, env, foundry?.procLog);
 	let errors = filter_errors(res.errors);
 	if (errors.length) {
 		throw error_with('forge build', {sol, errors});
@@ -417,17 +420,39 @@ class FoundryBase extends EventEmitter {
 		if (!profile) profile = this.profile();
 		let config;
 		try {
-			config = await exec_json(forge, ['config', '--root', root, '--json'], {FOUNDRY_PROFILE: profile}, this.procLog);
+			config = await exec(forge, ['config', '--root', root, '--json'], {FOUNDRY_PROFILE: profile}, this.procLog);
 		} catch (err) {
 			throw error_with(`invalid ${CONFIG_NAME}`, {root, profile}, err);
 		}
 		return Object.assign(new this, {root, profile, config, forge});
 	}
+	async version() {
+		const buf = await exec(this.forge, ['--version'], {}, undefined, false);
+		return buf.toString('utf8').trim();
+	}
+	async exportArtifacts(dir, {force = true, tests = false, scripts = false} = {}) {
+		let args = [
+			'build',
+			'--format-json',
+			'--root', this.root,
+			'--no-cache',
+			// this is gigadangerous if not relative
+			// forge will happily just delete your entire computer
+			// if you pass: "--out=/"
+			'--out', node_path.join(this.root, dir),
+		];
+		if (force) args.push('--force');
+		if (!tests) args.push('--skip', 'test');
+		if (!scripts) args.push('--skip', 'script');
+		//let res = await exec(this.forge, args, {FOUNDRY_PROFILE: this.profile}, this.procLog);
+		//return res.errors;
+		return args;
+	}
 	async build(force) {
 		if (!force && this.built) return this.built;
 		let args = ['build', '--format-json', '--root', this.root];
 		if (force) args.push('--force');
-		let res = await exec_json(this.forge, args, {FOUNDRY_PROFILE: this.profile}, this.procLog);
+		let res = await exec(this.forge, args, {FOUNDRY_PROFILE: this.profile}, this.procLog);
 		let errors = filter_errors(res.errors);
 		if (errors.length) {
 			throw error_with('forge build', {errors});
@@ -435,10 +460,13 @@ class FoundryBase extends EventEmitter {
 		this.emit('built');
 		return this.built = {date: new Date()};
 	}
+	async test() {
+
+	}
 	async find({file, contract}) {
 		await this.build();
 		file = remove_sol_ext(file); // remove optional extension
-		if (!contract) contract = node_path.basename(file); // derive contract name from file name
+		contract ??= node_path.basename(file); // derive contract name from file name
 		file += '.sol'; // add extension
 		let tail = node_path.join(node_path.basename(file), `${contract}.json`);
 		let path = node_path.dirname(file);
@@ -459,16 +487,17 @@ class FoundryBase extends EventEmitter {
 	}
 	resolveArtifact(arg0) {
 		let {import: imported, bytecode, abi, sol, file, contract, ...rest} = arg0;
+		if (bytecode) { // bytecode + abi
+			contract ??= 'Unnamed';
+			abi = iface_from(abi ?? []);
+			return {abi, bytecode, contract, origin: 'Bytecode', links: []};
+		}
 		if (imported) {
 			sol = `import "${imported}";`;
 			contract ??= remove_sol_ext(node_path.basename(imported));
 			rest.autoHeader = true; // force it
 		}
-		if (bytecode) { // bytecode + abi
-			contract ??= 'Unnamed';
-			abi = iface_from(abi ?? []);
-			return {abi, bytecode, contract, origin: 'Bytecode', links: []};
-		} else if (sol) { // sol code + contract?
+		if (sol) { // sol code + contract?
 			return compile(sol, {contract, foundry: this, ...rest});
 		} else if (file) { // file + contract?
 			return this.fileArtifact({file, contract});
@@ -479,8 +508,17 @@ class FoundryBase extends EventEmitter {
 	// 	return compile(sol, {contract, rest})
 	// }
 	async fileArtifact(arg0) {
-		let file = await this.find(arg0);
-		let artifact = JSON.parse(await promises.readFile(file));
+		let {file} = arg0;
+		let artifact;
+		if (typeof file === 'object') { // inline artifact
+			artifact = file;
+			file = undefined;
+		} else {
+			if (!file.endsWith('.json')) {
+				file = await this.find(arg0);
+			}
+			artifact = JSON.parse(await promises.readFile(file));
+		}
 		let [origin, contract] = Object.entries(artifact.metadata.settings.compilationTarget)[0]; // TODO: is this correct?
 		let bytecode = artifact.bytecode.object;
 		let links = extract_links(artifact.bytecode.linkReferences);
