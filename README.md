@@ -4,9 +4,11 @@
 
 `npm i @adraffy/blocksmith` [&check;](https://www.npmjs.com/package/@adraffy/blocksmith)
 
-* see [**types**](./dist/index.d.ts) / designed for [Foundry](https://github.com/foundry-rs/foundry) + [ethers](https://github.com/ethers-io/ethers.js).
+* see [**types**](./dist/index.d.mts) / designed for [Foundry](https://github.com/foundry-rs/foundry) + [ethers](https://github.com/ethers-io/ethers.js).
 * compatible with any async test runner, including [node:test](https://nodejs.org/api/test.html)
-* designed for complex [EIP-3668](https://eips.ethereum.org/EIPS/eip-3668) contracts
+* designed for complex [EIP-3668](https://eips.ethereum.org/EIPS/eip-3668) contracts 
+* reads directly from [`foundry.toml`](https://book.getfoundry.sh/reference/config/overview)
+* deploy inline contracts with string templates
 
 ![Screenshot](./test/deploy/screenshot.png)
 
@@ -18,8 +20,9 @@
 
 ### Examples
 
-* [test/deploy](./test/deploy/)
-* [test/ens-encoded-dns](./test/ens-encoded-dns/)
+* [./test/deploy/](./test/deploy/)
+* [./test/ens-encoded-dns/](./test/ens-encoded-dns/)
+* [./test/extlib/](./test/ens-encoded-dns/)
 * [resolverworks/**TheOffchainResolver.sol**](https://github.com/resolverworks/TheOffchainResolver.sol/blob/main/test/test.js)
 * [resolverworks/**XCTENS.sol**](https://github.com/resolverworks/XCTENS.sol/blob/main/test/test.js)
 * [resolverworks/**OffchainNext.sol**](https://github.com/resolverworks/OffchainNext.sol/blob/main/test/test.js)
