@@ -1,4 +1,4 @@
-import {Foundry, compile} from '../src/Foundry.js';
+import {Foundry, compile} from '../src/index.js';
 import {ethers} from 'ethers';
 
 const artifact = await compile(`

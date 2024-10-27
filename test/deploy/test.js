@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 test('deploy file', async () => {
 	let foundry = await Foundry.launch();
-	after(() => foundry.shutdown());
+	after(foundry.shutdown);
 	let contract = await foundry.deploy({file: 'Deploy'});
 	assert.equal(await contract.read(), 1n);
 	await foundry.confirm(contract.write(2n));
@@ -12,7 +12,7 @@ test('deploy file', async () => {
 
 test('deploy inline', async () => {
 	let foundry = await Foundry.launch();
-	after(() => foundry.shutdown());
+	after(foundry.shutdown);
 	let contract = await foundry.deploy({sol: `
 		contract Chonk {
 			function f() external pure returns (string memory) {
@@ -29,7 +29,7 @@ test('deploy inline', async () => {
 
 test('deploy w/inline import', async () => {
 	let foundry = await Foundry.launch();
-	after(() => foundry.shutdown());
+	after(foundry.shutdown);
 	let contract = await foundry.deploy({sol: `
 		import {Deploy} from "@test/deploy/Deploy.sol";
 		contract Chonk is Deploy {
@@ -40,7 +40,7 @@ test('deploy w/inline import', async () => {
 
 test('deploy w/import', async () => {
 	let foundry = await Foundry.launch();
-	after(() => foundry.shutdown());
+	after(foundry.shutdown);
 	let contract = await foundry.deploy({import: '@test/deploy/Deploy.sol'});
 	assert.equal(await contract.read(), 1n);
 });

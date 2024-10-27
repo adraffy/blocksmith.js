@@ -14,9 +14,12 @@ import {
 	ContractInterface,
 	ContractEventName,
 	EventEmitterable,
+	Log,
+	Result,
 } from "ethers";
 import { EventEmitter } from "node:events";
 import { ChildProcess } from "node:child_process";
+import { EventFragment } from "ethers";
 
 type DevWallet = Omit<Wallet, "connect">;
 type DeployedBaseContract = Omit<
@@ -41,6 +44,7 @@ type DeployedContract = DeployedBaseContract &
 	Omit<ContractInterface, keyof DeployedBaseContract> &
 	EventEmitterable<ContractEventName>;
 
+type EventLike = string | EventFragment;
 type InterfaceLike =
 	| Interface
 	| Contract
@@ -97,15 +101,32 @@ type BuildInfo = {
 	date: Date;
 };
 
+type ConfirmOptions = {
+	silent?: boolean;
+	confirms?: number;
+};
+
+type Backend = "ethereum" | "optimism";
+
 type FoundryBaseOptions = {
 	root?: PathLike; // default: ancestor w/foundry.toml
 	profile?: string; // default: "default"
 	forge?: string; // default: "forge" via PATH
 };
 
+type BuildEvent = {
+	started: Date;
+	root: string;
+	cmd: string[];
+	force: boolean;
+	profile: string;
+	mode: "project" | "shadow" | "isolated";
+};
+
 type FoundryEventMap = {
-	built: [];
-	shutdown: [uptime: number];
+	building: [event: BuildEvent];
+	built: [event: BuildEvent & { sources: string[] }];
+	shutdown: [];
 	tx: [
 		tx: TransactionResponse,
 		receipt: TransactionReceipt,
@@ -130,10 +151,11 @@ export class FoundryBase extends EventEmitter {
 	readonly profile: string;
 	readonly config: {
 		src: string;
+		test: string;
 		out: string;
+		libs: string[];
 		remappings: string[];
 	};
-	readonly anvil: string;
 	readonly forge: string;
 	readonly built?: BuildInfo;
 	version(): Promise<string>;
@@ -161,22 +183,29 @@ export class Foundry extends FoundryBase {
 			infoLog?: ToConsoleLog; // default: true = console.log()
 			procLog?: ToConsoleLog; // default: off
 			fork?: PathLike;
-			infiniteCallGas?: boolean;
+			infiniteCallGas?: boolean; // default: false
+			genesisTimestamp?: number; // default: now
+			backend?: Backend; // default: 'ethereum'
+			hardfork?: string; // default: latest
 		} & FoundryBaseOptions
 	): Promise<Foundry>;
 
+	readonly anvil: string;
 	readonly proc: ChildProcess;
 	readonly provider: WebSocketProvider;
-	readonly wallets: { [name: string]: DevWallet };
+	readonly wallets: Record<string, DevWallet>;
 	readonly accounts: Map<string, DeployedContract | DevWallet>;
 	readonly endpoint: string;
 	readonly chain: number;
 	readonly port: number;
 	readonly automine: boolean;
+	readonly backend: Backend;
+	readonly hardfork: string;
+	readonly started: Date;
 	readonly fork: string | undefined;
 
 	// note: these are silent fail on forks
-	nextBlock(blocks?: number): Promise<void>;
+	nextBlock(options?: { blocks?: number; sec?: number }): Promise<void>;
 	setStorageValue(
 		address: string | DeployedContract,
 		slot: BigNumberish,
@@ -190,7 +219,7 @@ export class Foundry extends FoundryBase {
 
 	// require a wallet
 	requireWallet(...wallets: (WalletLike | undefined)[]): DevWallet;
-	createWallet(
+	randomWallet(
 		options?: { prefix?: string } & WalletOptions
 	): Promise<DevWallet>;
 	ensureWallet(
@@ -209,21 +238,25 @@ export class Foundry extends FoundryBase {
 					args?: any[];
 					libs?: { [cid: string]: string | DeployedContract };
 					abis?: InterfaceLike[];
-					silent?: boolean;
 					parseAllErrors?: boolean;
-			  } & ArtifactLike)
+			  } & ConfirmOptions &
+					ArtifactLike)
 	): Promise<DeployedContract>;
 
 	// send a transaction promise and get a pretty print console log
 	confirm(
-		call: Promise<TransactionResponse>,
-		options?: {
-			silent?: boolean;
-			[key: string]: any;
-		}
+		call: TransactionResponse | Promise<TransactionResponse>,
+		options?: ConfirmOptions & Record<string, any>
 	): Promise<TransactionReceipt>;
 
 	parseAllErrors(iface: Interface): Interface;
+
+	findEvent(event: EventLike): { abi: Interface; frag: EventFragment };
+	getEventResult(
+		logs: Log[] | TransactionReceipt | DeployedContract,
+		event: EventLike,
+		skip?: number
+	): Result;
 
 	// kill anvil (this is a bound function)
 	shutdown: () => Promise<void>;

@@ -21,8 +21,8 @@ test('Accounts', async T => {
 	await T.test('create random wallet', async () => {
 		let foundry = await Foundry.launch({infoLog: false});
 		after(() => foundry.shutdown());
-		let a = await foundry.createWallet();
-		let b = await foundry.createWallet();
+		let a = await foundry.randomWallet();
+		let b = await foundry.randomWallet();
 		assert.equal(a.toString(), 'random1');
 		assert.equal(b.toString(), 'random2');
 		assert.notEqual(a.address, b.address);
@@ -33,14 +33,14 @@ test('Accounts', async T => {
 	await T.test('wallet w/1 ether', async () => {
 		let foundry = await Foundry.launch({infoLog: false});
 		after(() => foundry.shutdown());
-		let w = await foundry.createWallet({ether: 1});
+		let w = await foundry.randomWallet({ether: 1});
 		assert(await foundry.provider.getBalance(w.address) === BigInt(1e18));
 	});
 
 	await T.test('wallet w/0 ether', async () => {
 		let foundry = await Foundry.launch({infoLog: false});
 		after(() => foundry.shutdown());
-		let w = await foundry.createWallet({ether: 0});
+		let w = await foundry.randomWallet({ether: 0});
 		assert(await foundry.provider.getBalance(w.address) === 0n);
 	});
 
@@ -55,7 +55,7 @@ test('Accounts', async T => {
 	await T.test('wallet owner', async () => {
 		let foundry = await Foundry.launch({infoLog: false});
 		after(() => foundry.shutdown());
-		let w = await foundry.createWallet();
+		let w = await foundry.randomWallet();
 		assert(Foundry.of(w), foundry);
 	});
 

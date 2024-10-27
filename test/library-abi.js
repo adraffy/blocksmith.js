@@ -1,4 +1,4 @@
-import {Foundry} from '../src/Foundry.js';
+import {Foundry} from '../src/index.js';
 
 const f = await Foundry.launch();
 

@@ -1,7 +1,7 @@
 import {spawn} from 'node:child_process';
 import {ethers} from 'ethers';
 import {createWriteStream} from 'node:fs';
-import {readFile, writeFile, rm, mkdir, access, realpath} from 'node:fs/promises';
+import {readFile, writeFile, rm, mkdir, access, realpath, mkdtemp} from 'node:fs/promises';
 import {join, dirname, basename, sep as PATH_SEP} from 'node:path';
 import {tmpdir} from 'node:os';
 import {error_with, is_address, to_address} from './utils.js';
@@ -56,8 +56,8 @@ function get_NAME() {
 	return this[Symbol_name];
 }
 
-function take_hash(s) {
-	return s.slice(2, 10);
+function smol_addr(addr) {
+	return addr.slice(2, 10);
 }
 
 function parse_cid(cid) {
@@ -103,8 +103,7 @@ class ContractMap {
 	}
 }
 
-async function exec(cmd, args, env, log, json = true) {
-	log?.(cmd, args, env)
+async function exec(cmd, args, env, json = true) {
 	// 20240905: bun bug
 	// https://github.com/oven-sh/bun/issues/13755
 	// this fix is absolute garbage
@@ -151,7 +150,8 @@ async function exec(cmd, args, env, log, json = true) {
 			return Buffer.concat(stdout);
 		}
 		try {
-			return JSON.parse(Buffer.concat(stdout));
+			const buf = Buffer.concat(stdout);
+			return JSON.parse(buf);
 		} catch (bug) {
 			if (stdout.length > 1) {
 				let v = stdout.slice();
@@ -192,8 +192,8 @@ export async function compile(sol, options = {}) {
 			sol = `// SPDX-License-Identifier: UNLICENSED\n${sol}`;
 		}
 	}
-	let hash = ethers.id(sol);
-	let root = join(await realpath(tmpdir()), 'blocksmith', hash);
+	
+	let root = await mkdtemp(join(await realpath(tmpdir()), 'blocksmith/'));
 	
 	await rm(root, {recursive: true, force: true}); // better than --force 
 	
@@ -202,6 +202,7 @@ export async function compile(sol, options = {}) {
 	let file = join(src, `${contract}.sol`);
 	await writeFile(file, sol);
 
+	let forge = foundry ? foundry.forge : 'forge';
 	let args = [
 		'build',
 		'--format-json',
@@ -209,7 +210,8 @@ export async function compile(sol, options = {}) {
 		'--no-cache',
 	];
 	
-	let env = {FOUNDRY_PROFILE: DEFAULT_PROFILE};
+	let profile = DEFAULT_PROFILE;
+	let env = {FOUNDRY_PROFILE: profile};
 	let config;
 	if (foundry) {
 		config = JSON.parse(JSON.stringify(foundry.config)); // structuredClone?
@@ -245,17 +247,28 @@ export async function compile(sol, options = {}) {
 	if (evmVersion) config.evm_version = evmVersion;
 	if (viaIR !== undefined) config.via_ir = !!viaIR;
 
-	await writeFile(config_file, Toml.encode({profile: {[DEFAULT_PROFILE]: config}}));
+	await writeFile(config_file, Toml.encode({profile: {[profile]: config}}));
 	args.push('--config-path', config_file);
 
-	let res = await exec(foundry?.forge ?? 'forge', args, env, foundry?.procLog);
+	const buildInfo = {
+		started: new Date(),
+		root,
+		cmd: [forge, ...args],
+		profile,
+		mode: foundry ? 'shadow' : 'isolated',
+		force: true
+	};
+	foundry?.emit('building', buildInfo);
+	let res = await exec(forge, args, env);
 	let errors = filter_errors(res.errors);
 	if (errors.length) {
 		throw error_with('forge build', {sol, errors});
 	}
+	buildInfo.sources = Object.keys(res.sources);
+	foundry?.emit('built', buildInfo);
 
 	let info = res.contracts[file]?.[contract]?.[0];
-	let origin = `InlineCode{${take_hash(hash)}}`;
+	let origin = `InlineCode{${root.slice(-6)}}`;
 	if (!info) {
 		for (let x of Object.values(res.contracts)) {
 			let c = x[contract];
@@ -287,7 +300,6 @@ export class FoundryBase extends EventEmitter {
 	static profile() {
 		return process.env.FOUNDRY_PROFILE ?? DEFAULT_PROFILE;
 	}
-	// should
 	static async root(cwd) {
 		let dir = await realpath(cwd || process.cwd());
 		while (true) {
@@ -311,14 +323,14 @@ export class FoundryBase extends EventEmitter {
 		if (!profile) profile = this.profile();
 		let config;
 		try {
-			config = await exec(forge, ['config', '--root', root, '--json'], {FOUNDRY_PROFILE: profile}, this.procLog);
+			config = await exec(forge, ['config', '--root', root, '--json'], {FOUNDRY_PROFILE: profile});
 		} catch (err) {
 			throw error_with(`invalid ${CONFIG_NAME}`, {root, profile}, err);
 		}
 		return Object.assign(new this, {root, profile, config, forge});
 	}
 	async version() {
-		const buf = await exec(this.forge, ['--version'], {}, undefined, false);
+		const buf = await exec(this.forge, ['--version'], {}, false);
 		return buf.toString('utf8').trim();
 	}
 	async exportArtifacts(dir, {force = true, tests = false, scripts = false} = {}) {
@@ -341,18 +353,26 @@ export class FoundryBase extends EventEmitter {
 	}
 	async build(force) {
 		if (!force && this.built) return this.built;
-		let args = ['build', '--format-json', '--root', this.root];
+		let {root, profile} = this;
+		let args = ['build', '--format-json', '--root', root];
 		if (force) args.push('--force');
-		let res = await exec(this.forge, args, {FOUNDRY_PROFILE: this.profile}, this.procLog);
+		const buildInfo = {
+			started: new Date(),
+			root,
+			cmd: [this.forge, ...args],
+			force,
+			profile,
+			mode: 'project'
+		};
+		this.emit('building', buildInfo);
+		let res = await exec(this.forge, args, {FOUNDRY_PROFILE: profile});
 		let errors = filter_errors(res.errors);
 		if (errors.length) {
 			throw error_with('forge build', {errors});
 		}
-		this.emit('built');
+		buildInfo.sources = Object.keys(res.sources);
+		this.emit('built', buildInfo);
 		return this.built = {date: new Date()};
-	}
-	async test() {
-
 	}
 	async find({file, contract}) {
 		await this.build();
@@ -395,9 +415,6 @@ export class FoundryBase extends EventEmitter {
 		}
 		throw error_with('unknown artifact', arg0);
 	}
-	// async compileArtifact({sol, contract, ...rest}) {
-	// 	return compile(sol, {contract, rest})
-	// }
 	async fileArtifact(arg0) {
 		let {file} = arg0;
 		let artifact;
@@ -463,6 +480,9 @@ export class Foundry extends FoundryBase {
 		gasLimit,
 		blockSec,
 		autoClose = true,
+		genesisTimestamp,
+		hardfork = 'latest',
+		backend = 'ethereum',
 		fork, 
 		procLog,
 		infoLog = true,
@@ -470,11 +490,15 @@ export class Foundry extends FoundryBase {
 	} = {}) {
 		let self = await this.load(rest);
 		if (!infoLog) infoLog = undefined;
-		if (!procLog) procLog = undefined;
 		if (infoLog === true) infoLog = console.log.bind(console);
-		// if (infoLog === true) {
-		// 	infoLog = (...a) => console.log(ansi('2', new Date().toISOString()), ...a);
-		// }
+		if (!procLog) procLog = undefined;
+		if (backend !== 'ethereum' && backend !== 'optimism') {
+			throw error_with(`unknown backend: ${backend}`, {backend});
+		}
+		hardfork = hardfork.toLowerCase().trim();
+		if (hardfork === 'forge') {
+			hardfork = this.config.evm_version;
+		}
 		if (procLog === true) procLog = console.log.bind(console);
 		return new Promise((ful, rej) => {
 			let args = [
@@ -491,17 +515,23 @@ export class Foundry extends FoundryBase {
 				// https://github.com/foundry-rs/foundry/pull/8274
 				// 20240827: yet another bug
 				// https://github.com/foundry-rs/foundry/issues/8759
-				if (fork) {
-					args.push('--disable-block-gas-limit');
-				} else {
-					args.push('--gas-limit', '99999999999999999999999');
-				}
+				// 20241026: appears fixed
+				args.push('--disable-block-gas-limit');
 			} else if (gasLimit) {
 				args.push('--gas-limit', gasLimit);
 			}
 			if (fork) {
 				fork = String(fork);
 				args.push('--fork-url', fork);
+			}
+			if (genesisTimestamp !== undefined) {
+				args.push('--timestamp', genesisTimestamp);
+			}
+			if (hardfork !== 'latest') {
+				args.push('--hardfork', hardfork);
+			}
+			if (backend === 'optimism') {
+				args.push('--optimism');
 			}
 			let proc = spawn(anvil, args, {
 				env: {...process.env, RUST_LOG: 'node=info'},
@@ -510,7 +540,10 @@ export class Foundry extends FoundryBase {
 			const fail = data => {
 				proc.kill();
 				let error = strip_ansi(data.toString()).trim();
-				rej(error_with('launch', {args, error}));
+				let title = 'unknown launch error';
+				let match = error.match(/^Error: (.*)/);
+				if (match) title = match[1];
+				rej(error_with(title, {args, error}));
 			};
 			proc.stderr.once('data', fail);
 			let lines = [];
@@ -548,21 +581,19 @@ export class Foundry extends FoundryBase {
 					// https://github.com/foundry-rs/foundry/issues/7681
 					// https://github.com/foundry-rs/foundry/issues/8591
 					// [2m2024-08-02T19:38:31.399817Z[0m [32m INFO[0m [2mnode::user[0m[2m:[0m anvil_setLoggingEnabled
-					if (infoLog) {
-						let match = line.match(/^(\x1B\[\d+m\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\x1B\[0m) \x1B\[\d+m([^\x1B]+)\x1B\[0m \x1B\[\d+m([^\x1B]+)\x1B\[0m\x1B\[2m:\x1B\[0m (.*)$/);
-						if (match) {
-							let [_, time, _level, kind, line] = match;
-							if (kind === 'node::user') {
-								// note: this gets all fucky when weaving promises
-								// but i dont know of any work around until this is fixed
-								show_log = line !== 'eth_estimateGas';
-							} else if (kind === 'node::console') {
-								if (show_log) {
-									self.emit('console', line);
-									infoLog(TAG_CONSOLE, time, line);
-								}
-								return;
+					let match = line.match(/^(\x1B\[\d+m\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z\x1B\[0m) \x1B\[\d+m([^\x1B]+)\x1B\[0m \x1B\[\d+m([^\x1B]+)\x1B\[0m\x1B\[2m:\x1B\[0m (.*)$/);
+					if (match) {
+						let [_, time, _level, kind, line] = match;
+						if (kind === 'node::user') {
+							// note: this gets all fucky when weaving promises
+							// but i dont know of any work around until this is fixed
+							show_log = line !== 'eth_estimateGas';
+						} else if (kind === 'node::console') {
+							if (show_log) {
+								self.emit('console', line);
+								infoLog?.(TAG_CONSOLE, time, line);
 							}
+							return;
 						}
 					}
 					procLog?.(line);
@@ -572,22 +603,24 @@ export class Foundry extends FoundryBase {
 				let provider = new ethers.WebSocketProvider(endpoint, chain, {staticNetwork: true});
 				//let provider = new ethers.IpcSocketProvider('/tmp/anvil.ipc', chain, {staticNetwork: true});
 				chain ??= parseInt(await provider.send('eth_chainId')); // determine chain id
-				let automine = await provider.send('anvil_getAutomine');
+				let automine = !!await provider.send('anvil_getAutomine');
 				if (automine) {
 					provider.destroy();
 					provider = new ethers.WebSocketProvider(endpoint, chain, {staticNetwork: true, cacheTimeout: -1});
 				}
-				Object.assign(self, {proc, provider, infoLog, procLog, endpoint, chain, port, automine, anvil, fork});
+				Object.assign(self, {
+					anvil, proc, provider,
+					infoLog, procLog,
+					endpoint, chain, port, fork,
+					automine, hardfork, backend,
+					started: new Date(),
+				});
 				wallets = await Promise.all(wallets.map(x => self.ensureWallet(x)));
-				if (infoLog) {
-					const t = Date.now();
-					infoLog(TAG_START, self.pretty({chain, endpoint, wallets}));
-					proc.once('exit', () => {
-						const uptime = Date.now() - t;
-						self.emit('shutdown', uptime);
-						infoLog(TAG_STOP, `${ansi('33', uptime)}ms`); // TODO fix me
-					});
-				}
+				infoLog?.(TAG_START, self.pretty({chain, endpoint, wallets}));
+				proc.once('exit', () => {
+					self.emit('shutdown');
+					infoLog?.(TAG_STOP, `${ansi('33', Date.now() - self.started)}ms`); // TODO fix me
+				});
 				ful(self);
 			}
 		});
@@ -626,8 +659,11 @@ export class Foundry extends FoundryBase {
 			return this.killed;
 		};
 	}
-	nextBlock(n = 1) {
-		return this.provider.send('anvil_mine', [ethers.toBeHex(n)]);
+	nextBlock({blocks = 1, sec = 1} = {}) {
+		return this.provider.send('anvil_mine', [
+			ethers.toBeHex(blocks), 
+			ethers.toBeHex(sec)
+		]);
 	}
 	setStorageValue(a, slot, value) {
 		if (value instanceof Uint8Array) {
@@ -684,7 +720,7 @@ export class Foundry extends FoundryBase {
 		}
 		throw new Error('missing required wallet');
 	}
-	createWallet({prefix = 'random', ...a} = {}) {
+	randomWallet({prefix = 'random', ...a} = {}) {
 		let id = 0;
 		while (true) {
 			let name = `${prefix}${++id}`; // TODO fix O(n)
@@ -767,9 +803,9 @@ export class Foundry extends FoundryBase {
 			if (desc) return desc;
 		}
 	}
-	async confirm(p, {silent, ...extra} = {}) {
+	async confirm(p, {silent, confirms, ...extra} = {}) {
 		let tx = await p;
-		let receipt = await tx.wait();
+		let receipt = await tx.wait(confirms);
 		let desc = this.parseTransaction(tx);
 		if (!silent && this.infoLog) {
 			let args = {gas: receipt.gasUsed, ...extra};
@@ -817,7 +853,7 @@ export class Foundry extends FoundryBase {
 		let w = await this.ensureWallet(from || DEFAULT_WALLET);
 		let {abi, ...artifact} = await this.resolveArtifact(artifactLike);
 		let c = new ethers.Contract(at, abi, w);
-		c[Symbol_name] = `${artifact.contract}<${take_hash(c.target)}>`; 
+		c[Symbol_name] = `${artifact.contract}<${smol_addr(c.target)}>`; 
 		c[Symbol_foundry] = this;
 		c.toString = get_NAME;
 		c.__artifact = artifact;
@@ -829,12 +865,13 @@ export class Foundry extends FoundryBase {
 			arg0 = arg0.startsWith('0x') ? {bytecode: arg0} : {sol: arg0};
 		}
 		let {
-			from = DEFAULT_WALLET, 
-			args = [], 
-			libs = {}, 
-			abis = [], 
-			silent = false, 
-			parseAllErrors = true, 
+			from = DEFAULT_WALLET,
+			args = [],
+			libs = {},
+			abis = [],
+			confirms,
+			silent = false,
+			parseAllErrors = true,
 			...artifactLike
 		} = arg0;
 		from = await this.ensureWallet(from);
@@ -845,9 +882,9 @@ export class Foundry extends FoundryBase {
 		let factory = new ethers.ContractFactory(abi, bytecode, from);
 		let unsigned = await factory.getDeployTransaction(...args);
 		let tx = await from.sendTransaction(unsigned);
-		let receipt = await tx.wait();
+		let receipt = new ethers.ContractTransactionReceipt(abi, this.provider, await tx.wait(confirms));
 		let c = new ethers.Contract(receipt.contractAddress, abi, from);
-		c[Symbol_name] = `${contract}<${take_hash(c.target)}>`; // so we can deploy the same contract multiple times
+		c[Symbol_name] = `${contract}<${smol_addr(c.target)}>`; // so we can deploy the same contract multiple times
 		c[Symbol_foundry] = this;
 		c.toString = get_NAME;
 		let code = ethers.getBytes(await this.provider.getCode(c.target));
@@ -892,6 +929,65 @@ export class Foundry extends FoundryBase {
 			abi.makeError = this.error_fixer;
 		}
 		return abi;
+	}
+	findEvent(event) {
+		if (event instanceof ethers.EventFragment) { // solo fragment
+			try {
+				return this.findEvent(event.topicHash);
+			} catch (err) {
+				return {
+					abi: new ethers.Interface([event]),
+					frag: event
+				};
+			}
+		}		
+		if (event.includes('(')) { // signature => topicHash
+			event = ethers.EventFragment.from(event).topicHash;
+		}
+		if (/^0x[0-9a-f]{64}$/i.test(event)) { // topicHash
+			let topic = event.toLowerCase();
+			let abi = this.event_map.get(topic);
+			if (abi) {
+				return {abi, frag: abi.getEvent(topic)};
+			}
+		} else { // name
+			let matches = [];
+			for (let abi of this.event_map.values()) {
+				abi.forEachEvent(frag => {
+					if (frag.name === event) {
+						matches.push({abi, frag});
+					}
+				});
+			}
+			if (matches.length > 1) throw error_with(`multiple events[${matches.length}]: ${event}`, {event, matches})
+			if (matches.length == 1) {
+				return matches[0];
+			}
+		}	
+		throw error_with(`unknown event: ${event}`, {event});
+	}
+	getEventResult(logs, event, skip = 0) {
+		if (logs instanceof ethers.Contract && logs[Symbol_foundry]) {
+			logs = logs.__receipt.logs;
+		} else if (logs instanceof ethers.TransactionReceipt) {
+			logs = logs.logs;
+		}
+		if (!Array.isArray(logs)) throw new TypeError('unable to coerce logs');
+		let {abi, frag} = this.findEvent(event);
+		for (const log of logs) {
+			try {
+				let desc = abi.parseLog(log);
+				if (desc.fragment === frag) {
+					if (skip > 0) {
+						--skip;
+						continue;
+					}
+					return desc.args;
+				}
+			} catch (err) {
+			}
+		}
+		throw error_with(`missing event: ${frag.name}`, {logs, abi, frag});
 	}
 }
 

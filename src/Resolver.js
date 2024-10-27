@@ -27,9 +27,7 @@ const DEFAULT_RECORDS = [
 ];
 
 export class Resolver {
-	static get ABI() {
-		return RESOLVER_ABI;
-	}
+	static ABI = RESOLVER_ABI;
 	static async dump(ens, node) {
 		let nodes = node.flat();
 		let owners = await Promise.all(nodes.map(x => ens.owner(x.namehash)));
@@ -45,7 +43,7 @@ export class Resolver {
 			if (resolver === ethers.ZeroAddress) continue;
 			let contract = new ethers.Contract(resolver, RESOLVER_ABI, ens.runner.provider);
 			let wild = await contract.supportsInterface(IFACE_ENSIP_10).catch(() => false);
-			if (drop && !wild) break;
+			if (drop && !wild) throw new Error('unreachable');
 			let tor = wild && await contract.supportsInterface(IFACE_TOR);
 			return Object.assign(new this(node, contract), {wild, tor, drop, base});
 		}

@@ -1,6 +1,6 @@
 {
 	"name": "@adraffy/blocksmith",
-	"version": "0.0.43",
+	"version": "0.1.44",
 	"description": "Minimal Ethereum Testing Framework for Foundry + ethers",
 	"type": "module",
 	"exports": {
@@ -21,7 +21,7 @@
 		"start": "node test/deploy/test.js",
 		"test": "node test/test-quick.js",
 		"test-all": "node test/test-all.js",
-		"build": "cp dist/index.d.mts dist/index.d.cts && rollup -c"
+		"build": "cp dist/index.d.mts dist/index.d.cts && rollup -c && npm pack"
 	},
 	"dependencies": {
 		"ethers": "^6.13.4"

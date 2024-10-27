@@ -22,4 +22,7 @@ console.log(await f.resolveArtifact({file: 'Deploy'}));
 
 console.log(await f.version());
 
+console.log(await f.build(true));
+
+
 //console.log(await f.exportArtifacts('chonk'));

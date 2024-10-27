@@ -1,6 +1,7 @@
+# https://book.getfoundry.sh/reference/config/overview
+
 # presence of this file signals the base Foundry directory
 [profile.default]
 
 src = "contracts"
-
 solc_version = "0.8.23"
