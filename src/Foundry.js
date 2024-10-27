@@ -193,7 +193,7 @@ export async function compile(sol, options = {}) {
 		}
 	}
 	
-	let root = await mkdtemp(join(await realpath(tmpdir()), 'blocksmith/'));
+	let root = await mkdtemp(join(await realpath(tmpdir()), 'blocksmith-'));
 	
 	await rm(root, {recursive: true, force: true}); // better than --force 
 	

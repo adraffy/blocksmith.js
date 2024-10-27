@@ -302,7 +302,7 @@ async function compile(sol, options = {}) {
 		}
 	}
 	
-	let root = await promises.mkdtemp(node_path.join(await promises.realpath(node_os.tmpdir()), 'blocksmith/'));
+	let root = await promises.mkdtemp(node_path.join(await promises.realpath(node_os.tmpdir()), 'blocksmith-'));
 	
 	await promises.rm(root, {recursive: true, force: true}); // better than --force 
 	
