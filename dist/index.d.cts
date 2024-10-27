@@ -16,10 +16,10 @@ import {
 	EventEmitterable,
 	Log,
 	Result,
+	EventFragment,
 } from "ethers";
 import { EventEmitter } from "node:events";
 import { ChildProcess } from "node:child_process";
-import { EventFragment } from "ethers";
 
 type DevWallet = Omit<Wallet, "connect">;
 type DeployedBaseContract = Omit<
@@ -252,11 +252,10 @@ export class Foundry extends FoundryBase {
 	parseAllErrors(iface: Interface): Interface;
 
 	findEvent(event: EventLike): { abi: Interface; frag: EventFragment };
-	getEventResult(
+	getEventResults(
 		logs: Log[] | TransactionReceipt | DeployedContract,
-		event: EventLike,
-		skip?: number
-	): Result;
+		event: EventLike
+	): Result[];
 
 	// kill anvil (this is a bound function)
 	shutdown: () => Promise<void>;

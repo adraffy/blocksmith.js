@@ -1,5 +1,4 @@
 import {Foundry} from '../src/index.js';
-import {ethers} from 'ethers';
 import {test, after} from 'node:test';
 import assert from 'assert/strict';
 
@@ -107,44 +106,4 @@ test('silent: event', async () => {
 		}
 	`);
 	await expectSilence(foundry, () => foundry.confirm(contract.f(), {silent: true}));
-});
-
-test('findEvent', async () => {
-	const foundry = await Foundry.launch({infoLog: false});
-	after(foundry.shutdown);
-	await foundry.deploy(`
-		contract C {
-			event Chonk(uint256 x);
-		}
-	`);
-	const {frag} = await foundry.findEvent('Chonk');
-	await foundry.findEvent(frag.format());
-	await foundry.findEvent(frag.topicHash);
-	await foundry.findEvent(frag);
-});
-
-test('getEventResult', async () => {
-	const foundry = await Foundry.launch({infoLog: false});
-	after(foundry.shutdown);
-	const contract = await foundry.deploy(`
-		contract C {
-			event Chonk(uint256 x);
-			constructor() {
-				emit Chonk(1);
-			}
-			function f() external {
-				emit Chonk(2);
-				emit Chonk(3);
-			}
-		}
-	`);
-	// from contract
-	assert.equal(foundry.getEventResult(contract, 'Chonk').x, 1n);
-	// from receipt
-	const receipt = await foundry.confirm(contract.f());
-	assert.equal(foundry.getEventResult(receipt, 'Chonk').x, 2n);
-	assert.equal(foundry.getEventResult(receipt.logs, 'Chonk').x, 2n);
-	// using skip
-	assert.equal(foundry.getEventResult(receipt, 'Chonk', 1).x, 3n);
-	assert.equal(foundry.getEventResult(receipt.logs, 'Chonk', 1).x, 3n);
 });

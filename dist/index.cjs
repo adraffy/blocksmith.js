@@ -1075,7 +1075,7 @@ class Foundry extends FoundryBase {
 		}	
 		throw error_with(`unknown event: ${event}`, {event});
 	}
-	getEventResult(logs, event, skip = 0) {
+	getEventResults(logs, event) {
 		if (logs instanceof ethers.ethers.Contract && logs[Symbol_foundry]) {
 			logs = logs.__receipt.logs;
 		} else if (logs instanceof ethers.ethers.TransactionReceipt) {
@@ -1083,20 +1083,18 @@ class Foundry extends FoundryBase {
 		}
 		if (!Array.isArray(logs)) throw new TypeError('unable to coerce logs');
 		let {abi, frag} = this.findEvent(event);
+		let found = [];
 		for (const log of logs) {
 			try {
 				let desc = abi.parseLog(log);
 				if (desc.fragment === frag) {
-					if (skip > 0) {
-						--skip;
-						continue;
-					}
-					return desc.args;
+					found.push(desc.args);
 				}
 			} catch (err) {
 			}
 		}
-		throw error_with(`missing event: ${frag.name}`, {logs, abi, frag});
+		return found;
+		//throw error_with(`missing event: ${frag.name}`, {logs, abi, frag});
 	}
 }
 

@@ -6,6 +6,7 @@ import './compile.js';
 //import './console.js';
 //import './deployless.js';
 //import './dups.js';
+import './event-results.js';
 import './events.js';
 //import './fork.js'; (SLOW)
 import './foundry.js';
