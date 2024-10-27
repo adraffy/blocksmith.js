@@ -364,7 +364,7 @@ async function compile(sol, options = {}) {
 		root,
 		cmd: [forge, ...args],
 		profile,
-		mode: foundry ? 'shadow' : 'isolated',
+		mode: foundry ? 'shadow' : 'compile',
 		force: true
 	};
 	foundry?.emit('building', buildInfo);
@@ -984,8 +984,9 @@ class Foundry extends FoundryBase {
 			...artifactLike
 		} = arg0;
 		from = await this.ensureWallet(from);
-		let {abi, links, bytecode: bytecode0, origin, contract} = await this.resolveArtifact(artifactLike);
-		abi = mergeABI(abi, ...abis);
+		let {abi: abi0, links, bytecode: bytecode0, origin, contract} = await this.resolveArtifact(artifactLike);
+		let abi = mergeABI(abi0, ...abis);
+		this.addABI(abi);
 		if (parseAllErrors) abi = this.parseAllErrors(abi);
 		let {bytecode, linked} = this.linkBytecode(bytecode0, links, libs);
 		let factory = new ethers.ethers.ContractFactory(abi, bytecode, from);
@@ -1000,6 +1001,21 @@ class Foundry extends FoundryBase {
 		c.__info = {contract, origin, code, libs: linked, from};
 		c.__receipt = receipt;
 		this.accounts.set(c.target, c);
+		if (!silent && this.infoLog) {
+			let stats = [
+				`${ansi('33', receipt.gasUsed)}gas`, 
+				`${ansi('33', code.length)}bytes`
+			];
+			if (Object.keys(linked).length) {
+				stats.push(this.pretty(linked));
+			}
+			this.infoLog(TAG_DEPLOY, this.pretty(from), origin, this.pretty(c), ...stats);
+			this._dump_logs(receipt);
+		}
+		this.emit('deploy', c); // tx, receipt?
+		return c;
+	}
+	addABI(abi) {
 		abi.forEachFunction(f => {
 			if (f.constant) return;
 			let bucket = this.write_map.get(f.selector);
@@ -1018,19 +1034,6 @@ class Foundry extends FoundryBase {
 			}
 			bucket.set(ethers.ethers.id(e.format('sighash')), abi);
 		});
-		if (!silent && this.infoLog) {
-			let stats = [
-				`${ansi('33', receipt.gasUsed)}gas`, 
-				`${ansi('33', code.length)}bytes`
-			];
-			if (Object.keys(linked).length) {
-				stats.push(this.pretty(linked));
-			}
-			this.infoLog(TAG_DEPLOY, this.pretty(from), origin, this.pretty(c), ...stats);
-			this._dump_logs(receipt);
-		}
-		this.emit('deploy', c); // tx, receipt?
-		return c;
 	}
 	parseAllErrors(abi) {
 		if (abi.makeError !== this.error_fixer) {
@@ -1060,17 +1063,19 @@ class Foundry extends FoundryBase {
 				return {abi, frag: abi.getEvent(topic)};
 			}
 		} else { // name
-			let matches = [];
+			let matches = new Set();
+			let first;
 			for (let abi of this.event_map.values()) {
 				abi.forEachEvent(frag => {
 					if (frag.name === event) {
-						matches.push({abi, frag});
+						if (!first) first = {abi, frag};
+						matches.add(frag.topicHash);
 					}
 				});
 			}
-			if (matches.length > 1) throw error_with(`multiple events[${matches.length}]: ${event}`, {event, matches})
-			if (matches.length == 1) {
-				return matches[0];
+			if (matches.size > 1) throw error_with(`multiple events: ${event}`, {event, matches})
+			if (first) {
+				return first;
 			}
 		}	
 		throw error_with(`unknown event: ${event}`, {event});

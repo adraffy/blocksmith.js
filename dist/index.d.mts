@@ -120,7 +120,7 @@ type BuildEvent = {
 	cmd: string[];
 	force: boolean;
 	profile: string;
-	mode: "project" | "shadow" | "isolated";
+	mode: "project" | "shadow" | "compile";
 };
 
 type FoundryEventMap = {
@@ -249,6 +249,7 @@ export class Foundry extends FoundryBase {
 		options?: ConfirmOptions & Record<string, any>
 	): Promise<TransactionReceipt>;
 
+	addABI(abi: Interface): void;
 	parseAllErrors(iface: Interface): Interface;
 
 	findEvent(event: EventLike): { abi: Interface; frag: EventFragment };

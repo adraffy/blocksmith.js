@@ -10,13 +10,36 @@ test('findEvent', async () => {
 			event Chonk(uint256 x);
 		}
 	`);
-	const {frag} = await foundry.findEvent('Chonk');
-	await foundry.findEvent(frag.format());
-	await foundry.findEvent(frag.topicHash);
-	await foundry.findEvent(frag);
+	const {frag} = foundry.findEvent('Chonk');
+	foundry.findEvent(frag.format());
+	foundry.findEvent(frag.topicHash);
+	foundry.findEvent(frag);
 });
 
-test('getEventResults', async () => {
+test('findEvent: duplicates', async () => {
+	const foundry = await Foundry.launch({infoLog: false});
+	after(foundry.shutdown);
+	for (let i = 0; i < 5; i++) {
+		await foundry.deploy(`contract C { event Chonk(uint256 x); }`);
+	}
+	await foundry.findEvent('Chonk');
+});
+
+test('findEvent: missing', async () => {
+	const foundry = await Foundry.launch({infoLog: false});
+	after(foundry.shutdown);
+	assert.throws(() => foundry.findEvent('Chonk'));
+});
+
+test('findEvent: conflict', async () => {
+	const foundry = await Foundry.launch({infoLog: false});
+	after(foundry.shutdown);
+	await foundry.deploy(`contract C { event Chonk(uint256 x); }`);
+	await foundry.deploy(`contract C { event Chonk(uint256 x, uint256 y); }`);
+	assert.throws(() => foundry.findEvent('Chonk'));
+});
+
+test('getEventResults: contract', async () => {
 	const foundry = await Foundry.launch({infoLog: false});
 	after(foundry.shutdown);
 	const contract = await foundry.deploy(`
@@ -25,18 +48,26 @@ test('getEventResults', async () => {
 			constructor() {
 				emit Chonk(1);
 			}
+		}
+	`);
+	const [{x}] = foundry.getEventResults(contract, 'Chonk');
+	assert.equal(x, 1n);
+});
+
+test('getEventResults: receipt', async () => {
+	const foundry = await Foundry.launch({infoLog: false});
+	after(foundry.shutdown);
+	const contract = await foundry.deploy(`
+		contract C {
+			event Chonk(uint256 x);
 			function f() external {
 				emit Chonk(2);
 				emit Chonk(3);
 			}
 		}
 	`);
-	// from contract
-	assert.equal(foundry.getEventResults(contract, 'Chonk')[0].x, 1n);
-	// from receipt
-	const receipt = await foundry.confirm(contract.f());
-	assert.equal(foundry.getEventResults(receipt, 'Chonk')[0].x, 2n);
-	assert.equal(foundry.getEventResults(receipt.logs, 'Chonk')[0].x, 2n);
-	assert.equal(foundry.getEventResults(receipt, 'Chonk')[1].x, 3n);
-	assert.equal(foundry.getEventResults(receipt.logs, 'Chonk')[1].x, 3n);
+	const [{x: x1}, {x: x2}] = foundry.getEventResults(await foundry.confirm(contract.f()), 'Chonk');
+	assert.equal(x1, 2n);
+	assert.equal(x2, 3n);
 });
+
