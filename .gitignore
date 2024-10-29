@@ -10,3 +10,5 @@ npm-test/
 # forge
 out/
 cache/
+
+.env

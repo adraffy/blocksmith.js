@@ -2,7 +2,7 @@ import {spawn} from 'node:child_process';
 import {ethers} from 'ethers';
 import {createWriteStream} from 'node:fs';
 import {readFile, writeFile, rm, mkdir, access, realpath, mkdtemp} from 'node:fs/promises';
-import {join, dirname, basename, sep as PATH_SEP} from 'node:path';
+import {join, dirname, relative, normalize, basename, sep as PATH_SEP} from 'node:path';
 import {tmpdir} from 'node:os';
 import {error_with, is_address, to_address} from './utils.js';
 import {inspect} from 'node:util';
@@ -58,6 +58,10 @@ function get_NAME() {
 
 function smol_addr(addr) {
 	return addr.slice(2, 10);
+}
+
+function is_exact_semver(version) {
+	return typeof version === 'string' && /^\d+\.\d+\.\d+$/.test(version);
 }
 
 function parse_cid(cid) {
@@ -197,7 +201,7 @@ export async function compile(sol, options = {}) {
 	
 	await rm(root, {recursive: true, force: true}); // better than --force 
 	
-	let src = join(root, foundry?.config.src ?? 'src');
+	let src = join(root, 'src');
 	await mkdir(src, {recursive: true});
 	let file = join(src, `${contract}.sol`);
 	await writeFile(file, sol);
@@ -215,6 +219,9 @@ export async function compile(sol, options = {}) {
 	let config;
 	if (foundry) {
 		config = JSON.parse(JSON.stringify(foundry.config)); // structuredClone?
+		config.src = 'src';
+		config.test = 'src';
+		config.libs = [];
 		let remappings = [
 			['@src', foundry.config.src], // this is nonstandard
 			['@test', foundry.config.test],
@@ -224,7 +231,7 @@ export async function compile(sol, options = {}) {
 			let pos = a.indexOf(':');
 			if (pos >= 0) {
 				// support remapping contexts
-				a = join(foundry.root, a.slice(0, pos)) + a.slice(pos);
+				a = join(foundry.root, a.slice(0, pos) + a.slice(pos));
 			}
 			return `${a}=${join(foundry.root, b)}`;
 		});
@@ -236,14 +243,15 @@ export async function compile(sol, options = {}) {
 	let config_file = join(root, CONFIG_NAME);
 	if (optimize !== undefined) {
 		if (optimize === true) optimize = 200;
-		if (optimize === false) {
+		if (!optimize) {
 			config.optimizer = false;
 		} else {
 			config.optimizer = true;
-			config.optimizer_runs = optimize; // TODO: parse?
+			config.optimizer_runs = optimize;
 		}
 	}
-	if (solcVersion) config.solc_version = solcVersion;
+	config.extra_output = ['metadata'];
+	if (solcVersion) config.solc = solcVersion;
 	if (evmVersion) config.evm_version = evmVersion;
 	if (viaIR !== undefined) config.via_ir = !!viaIR;
 
@@ -282,14 +290,15 @@ export async function compile(sol, options = {}) {
 			throw error_with('expected contract', {sol, contracts: Object.keys(res.contracts), contract});
 		}
 	}
-	let {contract: {abi, evm}} = info;
+
+	let {contract: {abi, evm, metadata}} = info;
 	abi = abi_from_solc_json(abi);
 	let bytecode = '0x' + evm.bytecode.object;
 	let links = extract_links(evm.bytecode.linkReferences);
-	//let deployedBytecode = '0x' + evm.deployedBytecode.object; // TODO: decide how to do this
-	//let deployedByteCount = evm.deployedBytecode.object.length >> 1;
-	// 20241002: do this is general with a decompiler
-	return {abi, bytecode, contract, origin, links, sol, root};
+	let cid = `${file}:${contract}`;
+	metadata = JSON.parse(metadata);
+	let compiler = metadata.compiler.version;
+	return {type: 'code', abi, bytecode, contract, origin, links, sol, cid, root, compiler};
 }
 
 // should this be called Foundry?
@@ -332,6 +341,12 @@ export class FoundryBase extends EventEmitter {
 	async version() {
 		const buf = await exec(this.forge, ['--version'], {}, false);
 		return buf.toString('utf8').trim();
+	}
+	async compiler(solcVersion) {
+		// https://book.getfoundry.sh/reference/config/solidity-compiler#solc_version
+		if (!is_exact_semver(solcVersion)) throw new Type('expected exact semver: x.y.z')
+		const {compiler} = await compile('contract C {}', {solcVersion, foundry: this});
+		return compiler;
 	}
 	async exportArtifacts(dir, {force = true, tests = false, scripts = false} = {}) {
 		let args = [
@@ -397,11 +412,11 @@ export class FoundryBase extends EventEmitter {
 		return compile(sol, {...options, foundry: this});
 	}
 	resolveArtifact(arg0) {
-		let {import: imported, bytecode, abi, sol, file, contract, ...rest} = arg0;
+		let {import: imported, bytecode, abi, sol, contract, ...rest} = arg0;
 		if (bytecode) { // bytecode + abi
 			contract ??= 'Unnamed';
 			abi = iface_from(abi ?? []);
-			return {abi, bytecode, contract, origin: 'Bytecode', links: []};
+			return {type: 'bytecode', abi, bytecode, contract, origin: 'Bytecode', links: []};
 		}
 		if (imported) {
 			sol = `import "${imported}";`;
@@ -410,28 +425,33 @@ export class FoundryBase extends EventEmitter {
 		}
 		if (sol) { // sol code + contract?
 			return compile(sol, {contract, foundry: this, ...rest});
-		} else if (file) { // file + contract?
-			return this.fileArtifact({file, contract});
+		} else {
+			return this.fileArtifact({contract, ...rest});
 		}
-		throw error_with('unknown artifact', arg0);
 	}
 	async fileArtifact(arg0) {
 		let {file} = arg0;
-		let artifact;
-		if (typeof file === 'object') { // inline artifact
-			artifact = file;
+		let json, root, type;
+		if (typeof file === 'object') { // inline artifact (this might be dumb)
+			json = file;
 			file = undefined;
-		} else {
-			if (!file.endsWith('.json')) {
-				file = await this.find(arg0);
-			}
-			artifact = JSON.parse(await readFile(file));
+			type = 'artifact';
+		} else if (file.endsWith('.json')) { // file artifact
+			json = JSON.parse(await readFile(file));
+			type = 'artifact';
+		} else { // source file
+			file = await this.find(arg0);
+			json = JSON.parse(await readFile(file));
+			root = this.root;
+			type = 'file';
 		}
-		let [origin, contract] = Object.entries(artifact.metadata.settings.compilationTarget)[0]; // TODO: is this correct?
-		let bytecode = artifact.bytecode.object;
-		let links = extract_links(artifact.bytecode.linkReferences);
-		let abi = abi_from_solc_json(artifact.abi);
-		return {abi, bytecode, contract, origin, file, links};
+		let [origin, contract] = Object.entries(json.metadata.settings.compilationTarget)[0]; // TODO: is this correct?
+		let cid = `${origin}:${contract}`;
+		let bytecode = json.bytecode.object;
+		let links = extract_links(json.bytecode.linkReferences);
+		let abi = abi_from_solc_json(json.abi);
+		let compiler = json.metadata.compiler.version;
+		return {type, abi, bytecode, contract, origin, file, links, cid, root, compiler};
 	}
 	linkBytecode(bytecode, links, libs) {
 		let map = new ContractMap();
@@ -440,7 +460,8 @@ export class FoundryBase extends EventEmitter {
 			if (!address) throw error_with(`unable to determine library address: ${file}`, {file, impl});
 			map.add(cid, address);
 		}
-		let linked = Object.fromEntries(links.map(link => {
+		let linkedLibs = {};
+		let linked = links.map(link => {
 			let cid = `${link.file}:${link.contract}`;
 			let [prefix, address] = map.find(cid);
 			if (!prefix) throw error_with(`unlinked external library: ${cid}`, link);
@@ -448,10 +469,11 @@ export class FoundryBase extends EventEmitter {
 				offset = (1 + offset) << 1;
 				bytecode = bytecode.slice(0, offset) + address.slice(2) + bytecode.slice(offset + 40);
 			}
-			return [prefix, address];
-		}));
+			linkedLibs[prefix] = address;
+			return {...link, cid, address};
+		});
 		bytecode = ethers.getBytes(bytecode);
-		return {bytecode, linked, libs};
+		return {bytecode, linked, linkedLibs};
 	}
 	tomlConfig() {
 		return Toml.encode({profile: {[this.profile]: this.config}});
@@ -465,6 +487,284 @@ export class FoundryBase extends EventEmitter {
 function has_key(x, key) {
 	return typeof x === 'object' && x !== null && key in x;
 }
+
+let _etherscanChains;
+async function etherscanChains() {
+	return _etherscanChains ??= (async () => {
+		try {
+			const res = await fetch('https://api.etherscan.io/v2/chainlist');
+			if (!res.ok) throw new Error('etherscan: chainlist');
+			const {result} = await res.json();
+			return new Map(result.map(x => [BigInt(x.chainid), x.blockexplorer]));
+		} catch (err) {
+			_etherscanChains = undefined;
+			throw err;
+		}
+	})();
+}
+
+const CHAIN_MAINNET = 1n;
+const CHAIN_SEPOLIA = 11155111n;
+
+export class FoundryDeployer extends FoundryBase {
+	static etherscanChains = etherscanChains;
+
+	static async mainnet(privateKey, rest = {}) {
+		const provider = new ethers.JsonRpcProvider('https://rpc.ankr.com/eth', CHAIN_MAINNET, {staticNetwork: true});
+		const wallet = new ethers.Wallet(privateKey, provider);
+		return this.load({...rest, wallet})
+	}
+	static async sepolia(privateKey, rest = {}) {
+		const provider = new ethers.JsonRpcProvider('https://rpc.ankr.com/eth_sepolia', CHAIN_SEPOLIA, {staticNetwork: true});
+		const wallet = new ethers.Wallet(privateKey, provider);
+		return this.load({...rest, wallet});
+	}
+	static async load({
+		wallet,
+		infoLog = true,
+		...rest
+	}) {
+		if (!(wallet instanceof ethers.AbstractSigner)) {
+			throw new TypeError('expected wallet w/AbstractSigner');
+		}
+		if (!(wallet.provider instanceof ethers.JsonRpcProvider)) {
+			throw new TypeError('expected wallet w/JsonRpcProvider');
+		}
+		if (!infoLog) infoLog = undefined;
+		if (infoLog === true) infoLog = (...a) => console.log(new Date(), ...a);
+		let self = await super.load(rest);
+		self.infoLog = infoLog;
+		self.rpc = wallet.provider._getConnection().url;
+		self.chain = (await wallet.provider._detectNetwork()).chainId;
+		self.wallet = wallet;
+		return self;
+	}
+	async prepare(arg0) {
+		if (typeof arg0 === 'string') {
+			arg0 = arg0.startsWith('0x') ? {bytecode: arg0} : {sol: arg0};
+		}
+		let {
+			args = [],
+			libs = {},
+			confirms,
+			...artifactLike
+		} = arg0;
+		let {type, abi, links, bytecode: bytecode0, cid, root, compiler} = await this.resolveArtifact(artifactLike);
+		if (!root) throw new Error('unsupported deployment type');
+		cid = relative(root, cid);
+		let {bytecode, linked} = this.linkBytecode(bytecode0, links, libs);
+		let factory = new ethers.ContractFactory(abi, bytecode, this.wallet);
+		let unsigned = await factory.getDeployTransaction(...args);
+		let encodedArgs = await abi.encodeDeploy(args);
+		let decodedArgs = ethers.AbiCoder.defaultAbiCoder().decode(abi.deploy.inputs, encodedArgs);
+		const gas = await this.wallet.estimateGas(unsigned);
+		const env = {FOUNDRY_PROFILE: this.profile};
+		const fees = await this.wallet.provider.getFeeData();
+		const wei = gas * fees.maxFeePerGas;
+		const approx_eth = Number(wei) / 1e18;
+		const self = this;
+		const ret = {
+			gas,
+			...fees,
+			wei,
+			eth: ethers.formatEther(wei),
+			root,
+			cid,
+			linked,
+			compiler,
+			decodedArgs,
+			encodedArgs,
+			deployArgs(use_private_key) {
+				const args = [
+					'create',
+					this.cid,
+					'--root', this.root,
+					'--rpc-url', self.rpc,
+					'--json'
+				];
+				if (use_private_key) {
+					args.push('--private-key', self.wallet.privateKey);
+				} else {
+					args.push('--interactive');
+				}
+				if (this.linked.length) {
+					//<remapped path to lib>:<library name>:<address></address>
+					args.push('--libraries');
+					for (let {file, contract, address} of linked) {
+						args.push(`${file}:${contract}:${address}`)
+					}
+				}
+				if (this.decodedArgs.length) {
+					args.push('--constructor-args', ...fmt_ctor_args(this.decodedArgs));
+				}
+				return args;
+			},
+			async deploy({confirms} = {}) {
+				const t0 = Date.now();
+				self.infoLog?.(`Deploying to ${ansi('33', self.chain)}...`);
+				const {deployedTo, transactionHash} = await exec(self.forge, this.deployArgs(true), env);
+				this.address = deployedTo;
+				self.infoLog?.(`Transaction: ${ansi('36', transactionHash)}`);
+				const contract = new ethers.Contract(deployedTo, abi, self.wallet);
+				self.infoLog?.(`Waiting for confirmation...`);
+				await self.wallet.provider.waitForTransaction(transactionHash, confirms);
+				const receipt = await self.wallet.provider.getTransactionReceipt(transactionHash);
+				self.infoLog?.(`Deployed: ${ansi('36', deployedTo)} (${fmt_dur(Date.now() - t0)})`);
+				return {contract, receipt};
+			},
+			async json() {
+				const args = [
+					'verify-contract',
+					ethers.ZeroAddress,
+					this.cid,
+					'--root', this.root,
+					'--show-standard-json-input',
+				];
+				if (this.decodedArgs.length) {
+					args.push('--constructor-args', encodedArgs);
+				}
+				const json = await exec(self.forge, args, env);
+				if (type === 'code') {
+					// we gotta unfuck these relatives
+					json.sources = Object.fromEntries(Object.entries(json.sources).map(([k, v]) => {
+						return [k.startsWith('../') ? normalize(join(this.root, k)) : k, v];
+					}));
+				}
+				return json;
+			},
+			async verifyEtherscan(address = this.address) {
+				const {cid, encodedArgs, compiler} = this;
+				return self.verifyEtherscan({
+					address,
+					cid,
+					encodedArgs,
+					compiler,
+					json: await this.json(),
+				});
+			}
+		};
+		if (this.infoLog) {
+			let stats = [
+				// remove contract name if same as file name
+				ansi('93', cid.replace(/\/(.*)\.sol:\1$/, (_, x) => `/${x}.sol`)),
+				`${ansi('33', bytecode.length)}bytes`,
+				`${ansi('33', gas)}gas`,
+				`${ansi('33', (Number(fees.maxFeePerGas) / 1e9).toFixed(1))}gwei`,
+				`${ansi('32', approx_eth.toFixed(4))}eth`,
+			];
+			if (this.chain == CHAIN_MAINNET || this.chain == CHAIN_SEPOLIA) {
+				try {
+					const res = await fetch('https://api.coinbase.com/v2/exchange-rates');
+					const {data: {rates: {ETH}}} = await res.json();
+					if (ETH > 0) {
+						stats.push(`${ansi('32', '$' + (approx_eth / ETH).toFixed(2))} @ ${(1 / ETH).toFixed(2)}`);
+					}
+				} catch (err) {
+				}
+			}
+			this.infoLog?.(...stats);
+		}
+		return ret;
+	}
+	async verifyEtherscan({json, cid, address, apiKey, encodedArgs, compiler, pollMs = 5000, retry = 3} = {}) {
+		const t0 = Date.now();
+
+		apiKey ??= this.config.etherscan_api_key;
+		if (!apiKey) throw new TypeError('missing apiKey');
+		address = to_address(address);
+		if (!address) throw new TypeError('expected address');
+		cid ??= Object.keys(json.sources)[0]; // use first contract?
+
+		 // fix this shit
+		if (!compiler) throw new Error('expected compiler/version');
+		if (is_exact_semver(compiler)) compiler = await this.compiler(compiler);
+		if (!compiler.startsWith('v')) compiler = `v${compiler}`;
+
+		if (encodedArgs) {
+			encodedArgs = ethers.hexlify(encodedArgs);
+			if (encodedArgs === '0x') encodedArgs = undefined;
+		}
+
+		const url = new URL('https://api.etherscan.io/v2/api');
+		url.searchParams.set('chainid', this.chain.toString());
+		url.searchParams.set('module', 'contract');
+		url.searchParams.set('action', 'verifysourcecode');
+		url.searchParams.set('apikey', apiKey);
+
+		const body = new FormData();
+		body.set('chainId', this.chain.toString());
+		body.set('sourceCode', JSON.stringify(json));
+		body.set('codeformat', 'solidity-standard-json-input');
+		body.set('contractaddress', address);
+		body.set('contractname', cid);
+		body.append('compilerversion', compiler);
+		body.append('constructorArguements', encodedArgs ?? '');
+
+		this.infoLog?.('Requesting verification...');
+		let guid;
+		while (true) {
+			const {message, result} = await fetch(url, {method: 'POST', body}).then(r => r.json());
+			if (message === 'OK') {
+				guid = result;
+				break;
+			} else if (/unable to locate contract/i.test(result)) {
+				if (retry > 0) {
+					--retry;
+					console.log(`Waiting for indexer...`);
+					await new Promise(ful => setTimeout(ful, pollMs));
+				} else {
+					throw error_with(`expected contract` , {chain: this.chain, address});
+				}
+			} else {
+				throw new Error(`etherscan: ${result}`, {result});
+			}
+		}
+		this.infoLog?.(`Request: ${ansi('33', guid)}`);
+		url.searchParams.set('guid', guid);
+		url.searchParams.set('action', 'checkverifystatus');
+		while (true) {
+			const {message, result} = await fetch(url).then(r => r.json());
+			if (message === 'OK') {
+				break;
+			} else if (/already verified/i.test(result)) {
+				break;
+			} else if (/pending in queue/i.test(result)) {
+				this.infoLog?.(`Waiting for verification...`);
+				await new Promise(ful => setTimeout(ful, pollMs));
+			} else {
+				throw error_with(`etherscan: ${result}`, {result, guid, url: url.toString()});
+			}
+		}
+		this.infoLog?.(`Verified: ${ansi('36', address)} (${fmt_dur(Date.now() - t0)})`);
+	}
+}
+
+function fmt_dur(t) {
+	if (t < 600) {
+		return `${t.toFixed(0)}ms`;
+	} else {
+		return `${(t / 1000).toFixed(1)}sec`;
+	}
+}
+
+function fmt_ctor_args(args) {
+	return args.map((x) => {
+	  if (Array.isArray(x)) {
+		return `[${fmt_ctor_args(x).join(',')}]`;
+	  } else {
+		switch (typeof x) {
+		  case 'boolean':
+		  case 'number':
+		  case 'bigint':
+			return String(x);
+		  case 'string':
+			return JSON.stringify(x);
+		  default:
+			throw new Error(`unexpected arg: ${x}`);
+		}
+	  }
+	});
+  }
 
 export class Foundry extends FoundryBase {
 	static of(x) {
@@ -619,7 +919,7 @@ export class Foundry extends FoundryBase {
 				infoLog?.(TAG_START, self.pretty({chain, endpoint, wallets}));
 				proc.once('exit', () => {
 					self.emit('shutdown');
-					infoLog?.(TAG_STOP, `${ansi('33', Date.now() - self.started)}ms`); // TODO fix me
+					infoLog?.(TAG_STOP, `${ansi('33', fmt_dur(Date.now() - self.started))}`);
 				});
 				ful(self);
 			}
@@ -879,7 +1179,7 @@ export class Foundry extends FoundryBase {
 		let abi = mergeABI(abi0, ...abis);
 		this.addABI(abi);
 		if (parseAllErrors) abi = this.parseAllErrors(abi);
-		let {bytecode, linked} = this.linkBytecode(bytecode0, links, libs);
+		let {bytecode, linkedLibs} = this.linkBytecode(bytecode0, links, libs);
 		let factory = new ethers.ContractFactory(abi, bytecode, from);
 		let unsigned = await factory.getDeployTransaction(...args);
 		let tx = await from.sendTransaction(unsigned);
@@ -889,16 +1189,16 @@ export class Foundry extends FoundryBase {
 		c[Symbol_foundry] = this;
 		c.toString = get_NAME;
 		let code = ethers.getBytes(await this.provider.getCode(c.target));
-		c.__info = {contract, origin, code, libs: linked, from};
+		c.__info = {contract, origin, code, libs: linkedLibs, from};
 		c.__receipt = receipt;
 		this.accounts.set(c.target, c);
 		if (!silent && this.infoLog) {
 			let stats = [
-				`${ansi('33', receipt.gasUsed)}gas`, 
-				`${ansi('33', code.length)}bytes`
+				`${ansi('33', code.length)}bytes`,
+				`${ansi('33', receipt.gasUsed)}gas`,
 			];
-			if (Object.keys(linked).length) {
-				stats.push(this.pretty(linked));
+			if (Object.keys(linkedLibs).length) {
+				stats.push(this.pretty(linkedLibs));
 			}
 			this.infoLog(TAG_DEPLOY, this.pretty(from), origin, this.pretty(c), ...stats);
 			this._dump_logs(receipt);

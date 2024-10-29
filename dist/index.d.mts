@@ -59,18 +59,23 @@ type ExternalLink = {
 type PathLike = string | URL;
 type WalletLike = string | DevWallet;
 type CompiledArtifact = {
+	readonly type: string;
 	readonly contract: string;
 	readonly origin: string;
 	readonly abi: Interface;
 	readonly bytecode: string;
 	readonly links: ExternalLink[];
 };
-type FileArtifact = CompiledArtifact & {
+type CompiledFromSourceArtifact = CompiledArtifact & {
+	readonly cid: string;
+	readonly root: string;
+	readonly compiler: string;
+};
+type FileArtifact = CompiledFromSourceArtifact & {
 	readonly file: string;
 };
-type CodeArtifact = CompiledArtifact & {
+type CodeArtifact = CompiledFromSourceArtifact & {
 	readonly sol: string;
-	readonly root: string;
 };
 type Artifact = CompiledArtifact | FileArtifact | CodeArtifact;
 type CompileOptions = {
@@ -169,6 +174,88 @@ export class FoundryBase extends EventEmitter {
 		fn: (...args: FoundryEventMap[E]) => any
 	): this;
 }
+
+type SolidityStandardJSONInput = {
+	language: string;
+	sources: { [cid: string]: { content: string } };
+	optimizer: {
+		enabled: boolean;
+		runs?: number;
+	};
+	settings: {
+		remappings: string[];
+		metadata: Record<string, any>;
+		evmVersion: string;
+		viaIR: boolean;
+		libraries: { [cid: string]: { [contract: string]: string } };
+	};
+};
+
+export type Deployable = {
+	gas: bigint;
+	wei: bigint;
+	eth: string;
+	root: string;
+	linked: (ExternalLink & { cid: string; address: string })[];
+	compiler: string;
+	decodedArgs: any[];
+	encodedArgs: string;
+	deployArgs(injectPrivateKey?: boolean): string[];
+	deploy(options?: {
+		confirms?: number;
+	}): Promise<{ contract: Contract; receipt: TransactionReceipt }>;
+	json(): Promise<Readonly<SolidityStandardJSONInput>>;
+	verifyEtherscan(address?: string): Promise<void>;
+};
+
+type FoundryDeployerOptions = FoundryBaseOptions & {
+	infoLog?: ToConsoleLog; // default: true
+};
+
+export class FoundryDeployer extends FoundryBase {
+	static etherscanChains(): Promise<Map<bigint, string>>;
+
+	static mainnet(
+		privateKey: string,
+		options?: FoundryDeployerOptions
+	): Promise<FoundryDeployer>;
+	static sepolia(
+		privateKey: string,
+		options?: FoundryDeployerOptions
+	): Promise<FoundryDeployer>;
+
+	static load(
+		options: {
+			wallet: Wallet;
+		} & FoundryDeployerOptions
+	): Promise<FoundryDeployer>;
+
+	readonly rpc: string;
+	readonly chain: bigint;
+	readonly wallet: Wallet;
+
+	prepare(
+		options:
+			| string
+			| ({
+					args?: any[];
+					libs?: { [cid: string]: string };
+					confirms?: number;
+			  } & ArtifactLike)
+	): Promise<Readonly<Deployable>>;
+
+	verifyEtherscan(options: {
+		json: SolidityStandardJSONInput;
+		address: string; // 0x...
+		cid?: string; // "src/File.sol:Contract"
+		apiKey?: string; // foundry.toml => ETHERSCAN_API_KEY
+		encodedArg?: string | Uint8Array;
+		compiler?: string; // can be semver
+		pollMs?: number; // default: 5sec
+		retry?: number; // default: 3
+	}): Promise<void>;
+}
+
 export class Foundry extends FoundryBase {
 	static of(x: DevWallet | DeployedContract): Foundry;
 	static launch(
