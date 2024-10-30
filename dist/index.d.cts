@@ -20,6 +20,7 @@ import {
 } from "ethers";
 import { EventEmitter } from "node:events";
 import { ChildProcess } from "node:child_process";
+import { SigningKey } from "ethers";
 
 type DevWallet = Omit<Wallet, "connect">;
 type DeployedBaseContract = Omit<
@@ -216,11 +217,11 @@ export class FoundryDeployer extends FoundryBase {
 	static etherscanChains(): Promise<Map<bigint, string>>;
 
 	static mainnet(
-		privateKey: string,
+		privateKey?: BytesLike | SigningKey,
 		options?: FoundryDeployerOptions
 	): Promise<FoundryDeployer>;
 	static sepolia(
-		privateKey: string,
+		privateKey?: BytesLike | SigningKey,
 		options?: FoundryDeployerOptions
 	): Promise<FoundryDeployer>;
 

@@ -107,7 +107,7 @@ class ContractMap {
 	}
 }
 
-async function exec(cmd, args, env, json = true) {
+async function exec({cmd, args = [], env = {}, /*cwd,*/ json = true} = {}) {
 	// 20240905: bun bug
 	// https://github.com/oven-sh/bun/issues/13755
 	// this fix is absolute garbage
@@ -129,8 +129,9 @@ async function exec(cmd, args, env, json = true) {
 	try {
 		let stdout = await new Promise((ful, rej) => {
 			let proc = spawn(cmd, args, {
-				env: {...process.env, ...env}, 
+				env: {...process.env, ...env},
 				stdio: ['ignore', 'pipe', 'pipe'],
+				//cwd,
 			});
 			let stdout = [];
 			let stderr = [];
@@ -166,7 +167,7 @@ async function exec(cmd, args, env, json = true) {
 			throw bug;
 		}
 	} catch (err) {
-		throw Object.assign(err, {cmd, args, env});
+		throw Object.assign(err, {cmd, args, env/*, cwd*/});
 	}
 }
 
@@ -267,7 +268,12 @@ export async function compile(sol, options = {}) {
 		force: true
 	};
 	foundry?.emit('building', buildInfo);
-	let res = await exec(forge, args, env);
+	let res = await exec({
+		cmd: forge, 
+		args, 
+		env, 
+		//cwd: root,
+	});
 	let errors = filter_errors(res.errors);
 	if (errors.length) {
 		throw error_with('forge build', {sol, errors});
@@ -332,14 +338,24 @@ export class FoundryBase extends EventEmitter {
 		if (!profile) profile = this.profile();
 		let config;
 		try {
-			config = await exec(forge, ['config', '--root', root, '--json'], {FOUNDRY_PROFILE: profile});
+			config = await exec({
+				cmd: forge,
+				args: ['config', '--root', root, '--json'],
+				env: {FOUNDRY_PROFILE: profile},
+				//cwd: root
+			});
 		} catch (err) {
 			throw error_with(`invalid ${CONFIG_NAME}`, {root, profile}, err);
 		}
 		return Object.assign(new this, {root, profile, config, forge});
 	}
 	async version() {
-		const buf = await exec(this.forge, ['--version'], {}, false);
+		const buf = await exec({
+			cmd: this.forge,
+			args: ['--version'],
+			//cwd: this.root,
+			json: false
+		});
 		return buf.toString('utf8').trim();
 	}
 	async compiler(solcVersion) {
@@ -368,19 +384,24 @@ export class FoundryBase extends EventEmitter {
 	}
 	async build(force) {
 		if (!force && this.built) return this.built;
-		let {root, profile} = this;
+		const {forge, root, profile} = this;
 		let args = ['build', '--format-json', '--root', root];
 		if (force) args.push('--force');
 		const buildInfo = {
 			started: new Date(),
 			root,
-			cmd: [this.forge, ...args],
+			cmd: [forge, ...args],
 			force,
 			profile,
 			mode: 'project'
 		};
 		this.emit('building', buildInfo);
-		let res = await exec(this.forge, args, {FOUNDRY_PROFILE: profile});
+		let res = await exec({
+			cmd: forge, 
+			args, 
+			env: {FOUNDRY_PROFILE: profile}, 
+			//cwd: root
+		});
 		let errors = filter_errors(res.errors);
 		if (errors.length) {
 			throw error_with('forge build', {errors});
@@ -509,14 +530,16 @@ const CHAIN_SEPOLIA = 11155111n;
 export class FoundryDeployer extends FoundryBase {
 	static etherscanChains = etherscanChains;
 
-	static async mainnet(privateKey, rest = {}) {
+	static async mainnet(pkey, rest = {}) {
+		if (!(pkey instanceof ethers.SigningKey)) pkey = new ethers.SigningKey(pkey);
 		const provider = new ethers.JsonRpcProvider('https://rpc.ankr.com/eth', CHAIN_MAINNET, {staticNetwork: true});
-		const wallet = new ethers.Wallet(privateKey, provider);
+		const wallet = new ethers.Wallet(pkey, provider);
 		return this.load({...rest, wallet})
 	}
-	static async sepolia(privateKey, rest = {}) {
+	static async sepolia(pkey, rest = {}) {
+		if (!(pkey instanceof ethers.SigningKey)) pkey = new ethers.SigningKey(pkey);
 		const provider = new ethers.JsonRpcProvider('https://rpc.ankr.com/eth_sepolia', CHAIN_SEPOLIA, {staticNetwork: true});
-		const wallet = new ethers.Wallet(privateKey, provider);
+		const wallet = new ethers.Wallet(pkey, provider);
 		return this.load({...rest, wallet});
 	}
 	static async load({
@@ -551,14 +574,15 @@ export class FoundryDeployer extends FoundryBase {
 		} = arg0;
 		let {type, abi, links, bytecode: bytecode0, cid, root, compiler} = await this.resolveArtifact(artifactLike);
 		if (!root) throw new Error('unsupported deployment type');
-		cid = relative(root, cid);
+		if (cid.startsWith('/')) { // if (type === 'code') {
+			cid = relative(root, cid);
+		}
 		let {bytecode, linked} = this.linkBytecode(bytecode0, links, libs);
 		let factory = new ethers.ContractFactory(abi, bytecode, this.wallet);
 		let unsigned = await factory.getDeployTransaction(...args);
 		let encodedArgs = await abi.encodeDeploy(args);
 		let decodedArgs = ethers.AbiCoder.defaultAbiCoder().decode(abi.deploy.inputs, encodedArgs);
 		const gas = await this.wallet.estimateGas(unsigned);
-		const env = {FOUNDRY_PROFILE: this.profile};
 		const fees = await this.wallet.provider.getFeeData();
 		const wei = gas * fees.maxFeePerGas;
 		const approx_eth = Number(wei) / 1e18;
@@ -588,11 +612,7 @@ export class FoundryDeployer extends FoundryBase {
 					args.push('--interactive');
 				}
 				if (this.linked.length) {
-					//<remapped path to lib>:<library name>:<address></address>
-					args.push('--libraries');
-					for (let {file, contract, address} of linked) {
-						args.push(`${file}:${contract}:${address}`)
-					}
+					args.push('--libraries', ...fmt_libraries(this.linked));
 				}
 				if (this.decodedArgs.length) {
 					args.push('--constructor-args', ...fmt_ctor_args(this.decodedArgs));
@@ -602,7 +622,12 @@ export class FoundryDeployer extends FoundryBase {
 			async deploy({confirms} = {}) {
 				const t0 = Date.now();
 				self.infoLog?.(`Deploying to ${ansi('33', self.chain)}...`);
-				const {deployedTo, transactionHash} = await exec(self.forge, this.deployArgs(true), env);
+				const {deployedTo, transactionHash} = await exec({
+					cmd: self.forge,
+					args: this.deployArgs(true), 
+					env: {FOUNDRY_PROFILE: self.profile},
+					//cwd: this.root
+				});
 				this.address = deployedTo;
 				self.infoLog?.(`Transaction: ${ansi('36', transactionHash)}`);
 				const contract = new ethers.Contract(deployedTo, abi, self.wallet);
@@ -623,7 +648,15 @@ export class FoundryDeployer extends FoundryBase {
 				if (this.decodedArgs.length) {
 					args.push('--constructor-args', encodedArgs);
 				}
-				const json = await exec(self.forge, args, env);
+				if (this.linked.length) {
+					args.push('--libraries', ...fmt_libraries(this.linked));
+				}
+				const json = await exec({
+					cmd: self.forge, 
+					args, 
+					env: {FOUNDRY_PROFILE: self.profile},
+					//cwd: this.root
+				});
 				if (type === 'code') {
 					// we gotta unfuck these relatives
 					json.sources = Object.fromEntries(Object.entries(json.sources).map(([k, v]) => {
@@ -745,6 +778,12 @@ function fmt_dur(t) {
 	} else {
 		return `${(t / 1000).toFixed(1)}sec`;
 	}
+}
+
+function fmt_libraries(linked) {
+	return linked.map(({file, contract, address}) => {
+		return `${file}:${contract}:${address}`;
+	});
 }
 
 function fmt_ctor_args(args) {
