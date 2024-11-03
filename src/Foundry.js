@@ -524,26 +524,56 @@ async function etherscanChains() {
 	})();
 }
 
-const CHAIN_MAINNET = 1n;
-const CHAIN_SEPOLIA = 11155111n;
+// let _chainlist;
+// async function chainlist() {
+// 	return _chainlist ??= (async () => {
+// 		try {
+// 			const res = await fetch('https://chainid.network/chains_mini.json');
+// 			const result = await res.json();
+// 			return new Map(result.map(x => [
+// 				BigInt(x.chainId),
+// 				{
+// 					name: x.name,
+// 					rpcs: x.rpc.filter(x => x.startsWith('https:') && !x.includes('{')),
+// 					isETH: x.nativeCurrency.symbol === 'ETH' && x.nativeCurrency.decimals === 18,
+// 				},
+// 			].filter(x => x[1].rpcs.length)));
+// 		} catch (err) {
+// 			_chainlist = undefined;
+// 			throw err;
+// 		}
+// 	});
+// }
+
+function create_wallet(pkey, rpc, chain) {
+	if (!pkey) throw new TypeError(`expected private key`);
+	if (!(pkey instanceof ethers.SigningKey)) pkey = new ethers.SigningKey(pkey);
+	const provider = new ethers.JsonRpcProvider(rpc, chain, {staticNetwork: true});
+	return new ethers.Wallet(pkey, provider);
+}
 
 export class FoundryDeployer extends FoundryBase {
 	static etherscanChains = etherscanChains;
 
+	//static async fromChain({privateKey, chain} = {}) {}
+
 	static async mainnet(pkey, rest = {}) {
-		if (!(pkey instanceof ethers.SigningKey)) pkey = new ethers.SigningKey(pkey);
-		const provider = new ethers.JsonRpcProvider('https://rpc.ankr.com/eth', CHAIN_MAINNET, {staticNetwork: true});
-		const wallet = new ethers.Wallet(pkey, provider);
-		return this.load({...rest, wallet})
+		return this.load({
+			...rest,
+			wallet: create_wallet(pkey, 'https://rpc.ankr.com/eth', 1),
+			gasToken: 'ETH'
+		});
 	}
 	static async sepolia(pkey, rest = {}) {
-		if (!(pkey instanceof ethers.SigningKey)) pkey = new ethers.SigningKey(pkey);
-		const provider = new ethers.JsonRpcProvider('https://rpc.ankr.com/eth_sepolia', CHAIN_SEPOLIA, {staticNetwork: true});
-		const wallet = new ethers.Wallet(pkey, provider);
-		return this.load({...rest, wallet});
+		return this.load({
+			...rest, 
+			wallet: create_wallet(pkey, 'https://rpc.ankr.com/eth_sepolia', 11155111),
+			gasToken: 'ETH'
+		});
 	}
 	static async load({
 		wallet,
+		gasToken,
 		infoLog = true,
 		...rest
 	}) {
@@ -557,10 +587,19 @@ export class FoundryDeployer extends FoundryBase {
 		if (infoLog === true) infoLog = (...a) => console.log(new Date(), ...a);
 		let self = await super.load(rest);
 		self.infoLog = infoLog;
+		self.gasToken = gasToken;
 		self.rpc = wallet.provider._getConnection().url;
 		self.chain = (await wallet.provider._detectNetwork()).chainId;
 		self.wallet = wallet;
 		return self;
+	}
+	set etherscanApiKey(api_key) {
+		this._etherscan = api_key || undefined;
+	}
+	get etherscanApiKey() {
+		let api_key = this._etherscan ?? this.config.etherscan_api_key;
+		if (!api_key) throw new Error(`missing etherscan api key`);
+		return api_key;
 	}
 	async prepare(arg0) {
 		if (typeof arg0 === 'string') {
@@ -685,7 +724,7 @@ export class FoundryDeployer extends FoundryBase {
 				`${ansi('33', (Number(fees.maxFeePerGas) / 1e9).toFixed(1))}gwei`,
 				`${ansi('32', approx_eth.toFixed(4))}eth`,
 			];
-			if (this.chain == CHAIN_MAINNET || this.chain == CHAIN_SEPOLIA) {
+			if (this.gasToken === 'ETH') {
 				try {
 					const res = await fetch('https://api.coinbase.com/v2/exchange-rates');
 					const {data: {rates: {ETH}}} = await res.json();
@@ -702,21 +741,16 @@ export class FoundryDeployer extends FoundryBase {
 	async verifyEtherscan({json, cid, address, apiKey, encodedArgs, compiler, pollMs = 5000, retry = 3} = {}) {
 		const t0 = Date.now();
 
-		apiKey ??= this.config.etherscan_api_key;
-		if (!apiKey) throw new TypeError('missing apiKey');
+		apiKey ??= this.etherscanApiKey;
 		address = to_address(address);
 		if (!address) throw new TypeError('expected address');
+		encodedArgs = encodedArgs ? ethers.hexlify(encodedArgs) : '0x';
 		cid ??= Object.keys(json.sources)[0]; // use first contract?
 
 		 // fix this shit
 		if (!compiler) throw new Error('expected compiler/version');
 		if (is_exact_semver(compiler)) compiler = await this.compiler(compiler);
 		if (!compiler.startsWith('v')) compiler = `v${compiler}`;
-
-		if (encodedArgs) {
-			encodedArgs = ethers.hexlify(encodedArgs);
-			if (encodedArgs === '0x') encodedArgs = undefined;
-		}
 
 		const url = new URL('https://api.etherscan.io/v2/api');
 		url.searchParams.set('chainid', this.chain.toString());
@@ -730,8 +764,9 @@ export class FoundryDeployer extends FoundryBase {
 		body.set('codeformat', 'solidity-standard-json-input');
 		body.set('contractaddress', address);
 		body.set('contractname', cid);
-		body.append('compilerversion', compiler);
-		body.append('constructorArguements', encodedArgs ?? '');
+		body.set('compilerversion', compiler);
+		body.set('constructorArguments', encodedArgs.slice(2));
+		console.log({encodedArgs});
 
 		this.infoLog?.('Requesting verification...');
 		let guid;
@@ -797,7 +832,7 @@ function fmt_ctor_args(args) {
 		  case 'bigint':
 			return String(x);
 		  case 'string':
-			return JSON.stringify(x);
+			return x; //JSON.stringify(x);
 		  default:
 			throw new Error(`unexpected arg: ${x}`);
 		}
@@ -1000,8 +1035,8 @@ export class Foundry extends FoundryBase {
 	}
 	nextBlock({blocks = 1, sec = 1} = {}) {
 		return this.provider.send('anvil_mine', [
-			ethers.toBeHex(blocks), 
-			ethers.toBeHex(sec)
+			ethers.toBeHex(blocks),
+			ethers.toBeHex(sec),
 		]);
 	}
 	setStorageValue(a, slot, value) {

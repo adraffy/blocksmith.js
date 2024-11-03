@@ -194,9 +194,13 @@ type SolidityStandardJSONInput = {
 
 export type Deployable = {
 	gas: bigint;
+	gasPrice: bigint;
+	maxFeePerGas: bigint;
+	maxPriorityFeePerGas: bigint;
 	wei: bigint;
 	eth: string;
 	root: string;
+	cid: string;
 	linked: (ExternalLink & { cid: string; address: string })[];
 	compiler: string;
 	decodedArgs: any[];
@@ -234,6 +238,9 @@ export class FoundryDeployer extends FoundryBase {
 	readonly rpc: string;
 	readonly chain: bigint;
 	readonly wallet: Wallet;
+
+	set etherscanApiKey(apiKey: string | undefined);
+	get etherscanApiKey(): string;
 
 	prepare(
 		options:

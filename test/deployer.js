@@ -2,7 +2,7 @@ import {FoundryDeployer} from '../src/Foundry.js';
 import {ethers} from 'ethers';
 
 const deployer = await FoundryDeployer.sepolia(process.env.PRIVATE_KEY);
-const info = await deployer.prepare(`
+const deployable = await deployer.prepare(`
 	import "forge-std/console2.sol";
 	contract C {
 		function chonk2() external {
@@ -10,9 +10,11 @@ const info = await deployer.prepare(`
 		}	
 	}
 `);
+console.log(deployable);
+console.log(deployer.etherscanApiKey);
 
-const {contract, receipt} = await info.deploy();
-await info.verifyEtherscan();
+// const {contract, receipt} = await info.deploy();
+// await info.verifyEtherscan();
 
-console.log(contract, receipt);
+// console.log(contract, receipt);
 

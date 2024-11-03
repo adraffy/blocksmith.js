@@ -9,7 +9,7 @@ test('nextBlock', async () => {
 	let b0 = await foundry.provider.getBlockNumber();
 	await foundry.nextBlock();
 	let b1 = await foundry.provider.getBlockNumber();
-	assert.equal(b0 + 1, b1);
+	assert.equal(b1, b0 + 1);
 });
 
 test('nextBlock blocks=2', async () => {
@@ -19,18 +19,18 @@ test('nextBlock blocks=2', async () => {
 	const blocks = 3;
 	await foundry.nextBlock({blocks});
 	let b1 = await foundry.provider.getBlockNumber();
-	assert.equal(b0 + blocks, b1);
+	assert.equal(b1, b0 + blocks);
 });
 
-// test('nextBlock sec=1', async () => {
-// 	let foundry = await Foundry.launch({infoLog: false});
-// 	after(foundry.shutdown);
-// 	let b0 = await foundry.provider.getBlock('latest');
-// 	const sec = 5; // currently bugged: https://github.com/foundry-rs/foundry/issues/8962
-// 	await foundry.nextBlock({sec});
-// 	let b1 = await foundry.provider.getBlock('latest');
-// 	assert.equal(b0.timestamp + sec, b1.timestamp);
-// });
+test('nextBlock sec=5', async () => {
+	let foundry = await Foundry.launch({infoLog: false});
+	after(foundry.shutdown);
+	const sec = 5;
+	let b0 = await foundry.provider.getBlock('latest');
+	await foundry.nextBlock({sec});
+	let b1 = await foundry.provider.getBlock('latest');
+	assert.equal(b1.timestamp, b0.timestamp + sec);
+});
 
 test('contract name', async () => {
 	let foundry = await Foundry.launch({infoLog: false});

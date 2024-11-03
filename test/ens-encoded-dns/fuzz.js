@@ -6,7 +6,7 @@ import {readFileSync} from 'node:fs';
 test('all known labels', async T => {
 
 	let foundry = await Foundry.launch({infiniteCallGas: true});
-	after(() => foundry.shutdown());
+	after(foundry.shutdown);
 
 	let labels = await fetch('https://adraffy.github.io/ens-labels/labels.json').then(r => r.json());
 	//let labels = JSON.parse(readFileSync(new URL('../../../ens-labels/labels.json', import.meta.url)));

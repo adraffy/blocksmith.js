@@ -6,21 +6,21 @@ test('Accounts', async T => {
 
 	await T.test('find admin wallet', async () => {
 		let foundry = await Foundry.launch({infoLog: false});
-		after(() => foundry.shutdown());
+		after(foundry.shutdown);
 		assert.equal(foundry.wallets.admin, foundry.requireWallet('admin'));
 		assert.equal(foundry.wallets.admin, await foundry.ensureWallet('admin'));
 	});
 	
 	await T.test('create named wallet', async () => {
 		let foundry = await Foundry.launch({infoLog: false});
-		after(() => foundry.shutdown());
+		after(foundry.shutdown);
 		let w = await foundry.ensureWallet('raffy');
 		assert(await foundry.provider.getBalance(w.address) > 0);
 	});
 
 	await T.test('create random wallet', async () => {
 		let foundry = await Foundry.launch({infoLog: false});
-		after(() => foundry.shutdown());
+		after(foundry.shutdown);
 		let a = await foundry.randomWallet();
 		let b = await foundry.randomWallet();
 		assert.equal(a.toString(), 'random1');
@@ -32,21 +32,21 @@ test('Accounts', async T => {
 
 	await T.test('wallet w/1 ether', async () => {
 		let foundry = await Foundry.launch({infoLog: false});
-		after(() => foundry.shutdown());
+		after(foundry.shutdown);
 		let w = await foundry.randomWallet({ether: 1});
 		assert(await foundry.provider.getBalance(w.address) === BigInt(1e18));
 	});
 
 	await T.test('wallet w/0 ether', async () => {
 		let foundry = await Foundry.launch({infoLog: false});
-		after(() => foundry.shutdown());
+		after(foundry.shutdown);
 		let w = await foundry.randomWallet({ether: 0});
 		assert(await foundry.provider.getBalance(w.address) === 0n);
 	});
 
 	await T.test('wallet name', async () => {
 		let foundry = await Foundry.launch({infoLog: false});
-		after(() => foundry.shutdown());
+		after(foundry.shutdown);
 		const name = 'raffy';
 		let w = await foundry.ensureWallet(name);
 		assert(w.toString(), name);
@@ -54,7 +54,7 @@ test('Accounts', async T => {
 
 	await T.test('wallet owner', async () => {
 		let foundry = await Foundry.launch({infoLog: false});
-		after(() => foundry.shutdown());
+		after(foundry.shutdown);
 		let w = await foundry.randomWallet();
 		assert(Foundry.of(w), foundry);
 	});

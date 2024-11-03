@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 
 test('forked mainnet', async T => {
 	let foundry = await Foundry.launch({fork: 'https://cloudflare-eth.com', infoLog: true});
-	after(() => foundry.shutdown());
+	after(foundry.shutdown);
 
 	const raffy = '0x51050ec063d393217B436747617aD1C2285Aeeee';
 	await T.test('raffy.eth', async () => {

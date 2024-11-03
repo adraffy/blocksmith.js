@@ -35,7 +35,7 @@ BAD_DNS.forEach(v => assert.throws(() => labels_from_dns_encoded(v)));
 
 test('ENSDNS', async T => {
 	let foundry = await Foundry.launch();
-	after(() => foundry.shutdown());
+	after(foundry.shutdown);
 	let contract = await foundry.deploy({file: 'ENSDNSTest'});
 	await T.test('dnsDecode: good', async TT => {
 		for (let {name, ens, dns} of GOOD_ENS) {	
