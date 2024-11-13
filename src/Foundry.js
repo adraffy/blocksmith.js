@@ -766,7 +766,6 @@ export class FoundryDeployer extends FoundryBase {
 		body.set('contractname', cid);
 		body.set('compilerversion', compiler);
 		body.set('constructorArguments', encodedArgs.slice(2));
-		console.log({encodedArgs});
 
 		this.infoLog?.('Requesting verification...');
 		let guid;
@@ -778,7 +777,7 @@ export class FoundryDeployer extends FoundryBase {
 			} else if (/unable to locate contract/i.test(result)) {
 				if (retry > 0) {
 					--retry;
-					console.log(`Waiting for indexer...`);
+					this.infoLog?.(`Waiting for indexer...`);
 					await new Promise(ful => setTimeout(ful, pollMs));
 				} else {
 					throw error_with(`expected contract` , {chain: this.chain, address});
