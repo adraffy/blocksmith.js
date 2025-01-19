@@ -17,10 +17,11 @@ import {
 	Log,
 	Result,
 	EventFragment,
+	SigningKey,
+	JsonRpcApiProvider,
 } from "ethers";
 import { EventEmitter } from "node:events";
 import { ChildProcess } from "node:child_process";
-import { SigningKey } from "ethers";
 
 type DevWallet = Omit<Wallet, "connect">;
 type DeployedBaseContract = Omit<
@@ -192,6 +193,12 @@ type SolidityStandardJSONInput = {
 	};
 };
 
+type VerifyEtherscanOptions = {
+	apiKey?: string; // foundry.toml => ETHERSCAN_API_KEY
+	pollMs?: number; // default: 5sec
+	retry?: number; // default: 10
+};
+
 export type Deployable = {
 	gas: bigint;
 	gasPrice: bigint;
@@ -210,7 +217,7 @@ export type Deployable = {
 		confirms?: number;
 	}): Promise<{ contract: Contract; receipt: TransactionReceipt }>;
 	json(): Promise<Readonly<SolidityStandardJSONInput>>;
-	verifyEtherscan(address?: string): Promise<void>;
+	verifyEtherscan(options?: VerifyEtherscanOptions): Promise<void>;
 };
 
 type FoundryDeployerOptions = FoundryBaseOptions & {
@@ -220,27 +227,33 @@ type FoundryDeployerOptions = FoundryBaseOptions & {
 export class FoundryDeployer extends FoundryBase {
 	static etherscanChains(): Promise<Map<bigint, string>>;
 
-	static mainnet(
-		privateKey?: BytesLike | SigningKey,
-		options?: FoundryDeployerOptions
-	): Promise<FoundryDeployer>;
-	static sepolia(
-		privateKey?: BytesLike | SigningKey,
-		options?: FoundryDeployerOptions
-	): Promise<FoundryDeployer>;
-
 	static load(
-		options: {
-			wallet: Wallet;
+		options?: {
+			provider?:
+				| JsonRpcApiProvider
+				| "mainnet"
+				| "sepolia"
+				| "holesky"
+				| "arb1"
+				| "base"
+				| "op"
+				| "linea"
+				| "polygon";
+			privateKey?: string | SigningKey;
 		} & FoundryDeployerOptions
 	): Promise<FoundryDeployer>;
 
 	readonly rpc: string;
 	readonly chain: bigint;
-	readonly wallet: Wallet;
+	readonly provider: JsonRpcApiProvider;
 
-	set etherscanApiKey(apiKey: string | undefined);
+	set etherscanApiKey(key: string | undefined);
 	get etherscanApiKey(): string;
+
+	set privateKey(key: SigningKey | string | undefined);
+	get privateKey(): SigningKey | undefined;
+	get address(): string | undefined;
+	requireWallet(): Wallet;
 
 	prepare(
 		options:
@@ -252,16 +265,15 @@ export class FoundryDeployer extends FoundryBase {
 			  } & ArtifactLike)
 	): Promise<Readonly<Deployable>>;
 
-	verifyEtherscan(options: {
-		json: SolidityStandardJSONInput;
-		address: string; // 0x...
-		cid?: string; // "src/File.sol:Contract"
-		apiKey?: string; // foundry.toml => ETHERSCAN_API_KEY
-		encodedArg?: string | Uint8Array;
-		compiler?: string; // can be semver
-		pollMs?: number; // default: 5sec
-		retry?: number; // default: 3
-	}): Promise<void>;
+	verifyEtherscan(
+		options: {
+			address: string; // 0x...
+			json: SolidityStandardJSONInput;
+			cid?: string; // "src/File.sol:Contract"
+			encodedArg?: string | Uint8Array;
+			compiler?: string; // can be semver
+		} & VerifyEtherscanOptions
+	): Promise<void>;
 }
 
 export class Foundry extends FoundryBase {

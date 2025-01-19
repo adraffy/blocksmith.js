@@ -654,61 +654,69 @@ async function etherscanChains() {
 // 	});
 // }
 
-function create_wallet(pkey, rpc, chain) {
-	if (!pkey) throw new TypeError(`expected private key`);
-	if (!(pkey instanceof ethers.ethers.SigningKey)) pkey = new ethers.ethers.SigningKey(pkey);
-	const provider = new ethers.ethers.JsonRpcProvider(rpc, chain, {staticNetwork: true});
-	return new ethers.ethers.Wallet(pkey, provider);
-}
+// TODO: fix this
+const PROVIDERS = {
+	mainnet: 'https://rpc.ankr.com/eth',
+	sepolia: 'https://rpc.ankr.com/eth_sepolia',
+	base: 'https://mainnet.base.org',
+	op: 'https://mainnet.optimism.io',
+	arb1: 'https://arb1.arbitrum.io/rpc',
+	linea: 'https://rpc.linea.build',
+	polygon: 'https://polygon-rpc.com',
+};
 
 class FoundryDeployer extends FoundryBase {
 	static etherscanChains = etherscanChains;
 
-	//static async fromChain({privateKey, chain} = {}) {}
-
-	static async mainnet(pkey, rest = {}) {
-		return this.load({
-			...rest,
-			wallet: create_wallet(pkey, 'https://rpc.ankr.com/eth', 1),
-			gasToken: 'ETH'
-		});
-	}
-	static async sepolia(pkey, rest = {}) {
-		return this.load({
-			...rest, 
-			wallet: create_wallet(pkey, 'https://rpc.ankr.com/eth_sepolia', 11155111),
-			gasToken: 'ETH'
-		});
-	}
 	static async load({
-		wallet,
-		gasToken,
+		provider,
+		privateKey,
+		gasToken = 'ETH',
 		infoLog = true,
 		...rest
-	}) {
-		if (!(wallet instanceof ethers.ethers.AbstractSigner)) {
-			throw new TypeError('expected wallet w/AbstractSigner');
-		}
-		if (!(wallet.provider instanceof ethers.ethers.JsonRpcProvider)) {
-			throw new TypeError('expected wallet w/JsonRpcProvider');
+	} = {}) {
+		if (typeof provider === 'string') {
+			provider = new ethers.ethers.JsonRpcProvider(PROVIDERS[provider] || provider, null, {staticNetwork: true});
 		}
 		if (!infoLog) infoLog = undefined;
 		if (infoLog === true) infoLog = (...a) => console.log(new Date(), ...a);
 		let self = await super.load(rest);
+		self._etherscanApiKey = undefined;
+		self._privateKey = undefined;
 		self.infoLog = infoLog;
 		self.gasToken = gasToken;
-		self.rpc = wallet.provider._getConnection().url;
-		self.chain = (await wallet.provider._detectNetwork()).chainId;
-		self.wallet = wallet;
+		self.rpc = provider._getConnection().url;
+		self.chain = (await provider.getNetwork()).chainId;
+		self.provider = provider;
+		self.privateKey = privateKey;
 		return self;
 	}
-	set etherscanApiKey(api_key) {
-		this._etherscan = api_key || undefined;
+	set etherscanApiKey(key) {
+		this._etherscanApiKey = key || undefined;
 	}
 	get etherscanApiKey() {
-		let api_key = this._etherscan ?? this.config.etherscan_api_key;
-		if (!api_key) throw new Error(`missing etherscan api key`);
-		return api_key;
+		return this._etherscanApiKey || this.config.etherscan_api_key;
+	}
+	set privateKey(key) {
+		if (!key) {
+			this._privateKey = undefined;
+		} else {
+			if (!(key instanceof ethers.ethers.SigningKey)) {
+				key = new ethers.ethers.SigningKey(key);
+			}
+			this._privateKey = key;
+			this.infoLog?.(`Deployer: ${ansi('36', this.address)}`);
+		}
+	}
+	get privateKey() {
+		return this._privateKey;
+	}
+	get address() {
+		return this._privateKey ? ethers.computeAddress(this._privateKey) : undefined;	}
+	requireWallet() {
+		const key = this.privateKey;
+		if (!key) throw new Error('expected private key');
+		return new ethers.ethers.Wallet(key, this.provider);
 	}
 	async prepare(arg0) {
 		if (typeof arg0 === 'string') {
@@ -726,12 +734,12 @@ class FoundryDeployer extends FoundryBase {
 			cid = node_path.relative(root, cid);
 		}
 		let {bytecode, linked} = this.linkBytecode(bytecode0, links, libs);
-		let factory = new ethers.ethers.ContractFactory(abi, bytecode, this.wallet);
+		let factory = new ethers.ethers.ContractFactory(abi, bytecode, this._privateKey ? this.requireWallet() : null);
 		let unsigned = await factory.getDeployTransaction(...args);
 		let encodedArgs = await abi.encodeDeploy(args);
 		let decodedArgs = ethers.ethers.AbiCoder.defaultAbiCoder().decode(abi.deploy.inputs, encodedArgs);
-		const gas = await this.wallet.estimateGas(unsigned);
-		const fees = await this.wallet.provider.getFeeData();
+		const gas = await this.provider.estimateGas(unsigned);
+		const fees = await this.provider.getFeeData();
 		const wei = gas * fees.maxFeePerGas;
 		const approx_eth = Number(wei) / 1e18;
 		const self = this;
@@ -752,10 +760,11 @@ class FoundryDeployer extends FoundryBase {
 					this.cid,
 					'--root', this.root,
 					'--rpc-url', self.rpc,
+					'--broadcast',
 					'--json'
 				];
 				if (use_private_key) {
-					args.push('--private-key', self.wallet.privateKey);
+					args.push('--private-key', self.privateKey.privateKey);
 				} else {
 					args.push('--interactive');
 				}
@@ -768,6 +777,7 @@ class FoundryDeployer extends FoundryBase {
 				return args;
 			},
 			async deploy({confirms} = {}) {
+				const wallet = self.requireWallet();
 				const t0 = Date.now();
 				self.infoLog?.(`Deploying to ${ansi('33', self.chain)}...`);
 				const {deployedTo, transactionHash} = await exec({
@@ -778,10 +788,10 @@ class FoundryDeployer extends FoundryBase {
 				});
 				this.address = deployedTo;
 				self.infoLog?.(`Transaction: ${ansi('36', transactionHash)}`);
-				const contract = new ethers.ethers.Contract(deployedTo, abi, self.wallet);
+				const contract = new ethers.ethers.Contract(deployedTo, abi, wallet);
 				self.infoLog?.(`Waiting for confirmation...`);
-				await self.wallet.provider.waitForTransaction(transactionHash, confirms);
-				const receipt = await self.wallet.provider.getTransactionReceipt(transactionHash);
+				await self.provider.waitForTransaction(transactionHash, confirms);
+				const receipt = await self.provider.getTransactionReceipt(transactionHash);
 				self.infoLog?.(`Deployed: ${ansi('36', deployedTo)} (${fmt_dur(Date.now() - t0)})`);
 				return {contract, receipt};
 			},
@@ -825,9 +835,9 @@ class FoundryDeployer extends FoundryBase {
 			}
 		};
 		if (this.infoLog) {
+			// remove contract name if same as file name
+			this.infoLog(`Contract: ${ansi('93', cid.replace(/\/(.*)\.sol:\1$/, (_, x) => `/${x}.sol`))}`);
 			let stats = [
-				// remove contract name if same as file name
-				ansi('93', cid.replace(/\/(.*)\.sol:\1$/, (_, x) => `/${x}.sol`)),
 				`${ansi('33', bytecode.length)}bytes`,
 				`${ansi('33', gas)}gas`,
 				`${ansi('33', (Number(fees.maxFeePerGas) / 1e9).toFixed(1))}gwei`,
@@ -843,16 +853,17 @@ class FoundryDeployer extends FoundryBase {
 				} catch (err) {
 				}
 			}
-			this.infoLog?.(...stats);
+			this.infoLog(...stats);
 		}
 		return ret;
 	}
-	async verifyEtherscan({json, cid, address, apiKey, encodedArgs, compiler, pollMs = 5000, retry = 3} = {}) {
+	async verifyEtherscan({json, cid, address, apiKey, encodedArgs, compiler, pollMs = 5000, retry = 10} = {}) {
 		const t0 = Date.now();
-
+		
 		apiKey ??= this.etherscanApiKey;
+		if (!apiKey) throw new Error(`expected etherscan api key`); 
 		address = to_address(address);
-		if (!address) throw new TypeError('expected address');
+		if (!address) throw new Error('expected address');
 		encodedArgs = encodedArgs ? ethers.ethers.hexlify(encodedArgs) : '0x';
 		cid ??= Object.keys(json.sources)[0]; // use first contract?
 

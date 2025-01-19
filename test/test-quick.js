@@ -18,6 +18,5 @@ import './merge-abi.js';
 import './node.js';
 //import './play.js';
 //import './resolver.js'; (SLOW)
-
 import './deploy/test.js';
 import './ens-encoded-dns/test.js';
