@@ -218,7 +218,9 @@ export type Deployable = {
 		confirms?: number;
 	}): Promise<{ contract: Contract; receipt: TransactionReceipt }>;
 	json(): Promise<Readonly<SolidityStandardJSONInput>>;
-	verifyEtherscan(options?: VerifyEtherscanOptions): Promise<void>;
+	verifyEtherscan(
+		options?: { address?: string } & VerifyEtherscanOptions
+	): Promise<void>;
 };
 
 type FoundryDeployerOptions = FoundryBaseOptions & {
