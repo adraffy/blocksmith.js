@@ -627,8 +627,10 @@ export class FoundryDeployer extends FoundryBase {
 			cid = relative(root, cid);
 		}
 		let {bytecode, linked} = this.linkBytecode(bytecode0, links, libs);
-		let factory = new ethers.ContractFactory(abi, bytecode, this._privateKey ? this.requireWallet() : null);
+		const wallet = this._privateKey ? this.requireWallet() : null;
+		let factory = new ethers.ContractFactory(abi, bytecode, wallet);
 		let unsigned = await factory.getDeployTransaction(...args);
+		unsigned.from = wallet ? wallet.address : '0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee';
 		let encodedArgs = await abi.encodeDeploy(args);
 		let decodedArgs = ethers.AbiCoder.defaultAbiCoder().decode(abi.deploy.inputs, encodedArgs);
 		const gas = await this.provider.estimateGas(unsigned);
