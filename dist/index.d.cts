@@ -212,6 +212,7 @@ export type Deployable = {
 	compiler: string;
 	decodedArgs: any[];
 	encodedArgs: string;
+	address?: string;
 	deployArgs(injectPrivateKey?: boolean): string[];
 	deploy(options?: {
 		confirms?: number;

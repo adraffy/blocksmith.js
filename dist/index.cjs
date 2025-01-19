@@ -825,10 +825,11 @@ class FoundryDeployer extends FoundryBase {
 				}
 				return json;
 			},
-			async verifyEtherscan(address = this.address) {
-				const {cid, encodedArgs, compiler} = this;
+			async verifyEtherscan(a = {}) {
+				const {cid, encodedArgs, compiler, address} = this;
 				return self.verifyEtherscan({
 					address,
+					...a,
 					cid,
 					encodedArgs,
 					compiler,
