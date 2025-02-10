@@ -72,10 +72,10 @@ test('setStorageValue', async () => {
 	assert.equal(await contract.get(), 0n);
 });
 
-test('setStorageBytes: small', async () => {
-	let foundry = await Foundry.launch({infoLog: false});
+test('storageBytes: small', async () => {
+	const foundry = await Foundry.launch({infoLog: false});
 	after(foundry.shutdown);
-	let contract = await foundry.deploy(`
+	const contract = await foundry.deploy(`
 		contract C {
 			bytes v;
 			function get() external view returns (bytes memory) {
@@ -83,15 +83,18 @@ test('setStorageBytes: small', async () => {
 			}
 		}
 	`);
-	const value = ethers.hexlify(ethers.randomBytes(17));
-	await foundry.setStorageBytes(contract, 0, value);
-	assert.equal(await contract.get(), value);
+	const SLOT = 0;
+	const value = ethers.randomBytes(17);
+	await foundry.setStorageBytes(contract, SLOT, value);
+	assert.equal(await foundry.getStorageBytesLength(contract, SLOT), BigInt(value.length));
+	assert.deepEqual(await foundry.getStorageBytes(contract, SLOT), value);
+	assert.equal(await contract.get(), ethers.hexlify(value));
 });
 
-test('setStorageBytes: large', async () => {
-	let foundry = await Foundry.launch({infoLog: false});
+test('storageBytes: large', async () => {
+	const foundry = await Foundry.launch({infoLog: false});
 	after(foundry.shutdown);
-	let contract = await foundry.deploy(`
+	const contract = await foundry.deploy(`
 		contract C {
 			bytes v;
 			function get() external view returns (bytes memory) { 
@@ -99,7 +102,36 @@ test('setStorageBytes: large', async () => {
 			}
 		}
 	`);
-	const value = ethers.hexlify(ethers.randomBytes(1337));
-	await foundry.setStorageBytes(contract, 0, value);
-	assert.equal(await contract.get(), value);
+	const SLOT = 0;
+	const value = ethers.randomBytes(1337);
+	await foundry.setStorageBytes(contract, SLOT, value);
+	assert.equal(await foundry.getStorageBytesLength(contract, SLOT), BigInt(value.length));
+	assert.deepEqual(await foundry.getStorageBytes(contract, SLOT), value);
+	assert.equal(await contract.get(), ethers.hexlify(value));
+	await foundry.setStorageBytes(contract, SLOT);
+	const slot = BigInt(ethers.solidityPackedKeccak256(['uint256'], [SLOT]));
+	assert.equal(BigInt(await foundry.provider.getStorage(contract, slot)), 0n);
 });
+
+test('setStorageBytes: unzeroed', async () => {
+	const foundry = await Foundry.launch({infoLog: false});
+	after(foundry.shutdown);
+	const contract = await foundry.deploy(`contract C {}`);
+	const v = new Uint8Array(32);
+	v[31] = 1;
+	const SLOT = 0;
+	await foundry.setStorageBytes(contract, 0, v);
+	await foundry.setStorageBytes(contract, 0, new Uint8Array(0), false);
+	const slot = BigInt(ethers.solidityPackedKeccak256(['uint256'], [SLOT]));
+	assert.equal(BigInt(await foundry.provider.getStorage(contract, slot)), 1n);
+});
+
+
+test('getStorageBytes: too large', async () => {
+	const foundry = await Foundry.launch({infoLog: false});
+	after(foundry.shutdown);
+	const contract = await foundry.deploy(`contract C {}`);
+	await foundry.setStorageValue(contract, 0, 100000000n);
+	await assert.rejects(() => foundry.getStorageBytes(contract, 0));
+});
+

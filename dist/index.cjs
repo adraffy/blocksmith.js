@@ -164,7 +164,6 @@ const Symbol_makeErrors = Symbol('blocksmith.makeError');
 function get_NAME() {
 	return this[Symbol_name];
 }
-
 function smol_addr(addr) {
 	return addr.slice(2, 10);
 }
@@ -541,7 +540,7 @@ class FoundryBase extends EventEmitter {
 	compile(sol, options = {}) {
 		return compile(sol, {...options, foundry: this});
 	}
-	resolveArtifact(arg0) {
+	async resolveArtifact(arg0) {
 		let {import: imported, bytecode, abi, sol, contract, ...rest} = arg0;
 		if (bytecode) { // bytecode + abi
 			contract ??= 'Unnamed';
@@ -549,9 +548,15 @@ class FoundryBase extends EventEmitter {
 			return {type: 'bytecode', abi, bytecode, contract, origin: 'Bytecode', links: []};
 		}
 		if (imported) {
-			sol = `import "${imported}";`;
 			contract ??= remove_sol_ext(node_path.basename(imported));
-			rest.autoHeader = true; // force it
+			const artifact = await compile(`import "${imported}";`, {
+				...rest,
+				contract,
+				foundry: this, 
+				autoHeader: true
+			});
+			artifact.origin = imported;
+			return artifact;
 		}
 		if (sol) { // sol code + contract?
 			return compile(sol, {contract, foundry: this, ...rest});
@@ -712,7 +717,7 @@ class FoundryDeployer extends FoundryBase {
 		return this._privateKey;
 	}
 	get address() {
-		return this._privateKey ? ethers.computeAddress(this._privateKey) : undefined;	}
+		return this._privateKey ? ethers.ethers.computeAddress(this._privateKey) : undefined;	}
 	requireWallet() {
 		const key = this.privateKey;
 		if (!key) throw new Error('expected private key');
@@ -1110,6 +1115,7 @@ class Foundry extends FoundryBase {
 					endpoint, chain, port, fork,
 					automine, hardfork, backend,
 					started: new Date(),
+					ensRegistry: '0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e',
 				});
 				wallets = await Promise.all(wallets.map(x => self.ensureWallet(x)));
 				infoLog?.(TAG_START, self.pretty({chain, endpoint, wallets}));
@@ -1161,41 +1167,98 @@ class Foundry extends FoundryBase {
 			ethers.ethers.toBeHex(sec),
 		]);
 	}
-	setStorageValue(a, slot, value) {
+	async setStorageValue(a, slot, value) {
 		if (value instanceof Uint8Array) {
 			if (value.length != 32) throw new TypeError(`expected exactly 32 bytes`);
 			value = ethers.ethers.hexlify(value);
 		} else {
-			value = ethers.ethers.toBeHex(value, 32);
+			value = ethers.ethers.toBeHex(value || 0, 32);
 		}
-		return this.provider.send('anvil_setStorageAt', [to_address(a), ethers.ethers.toBeHex(slot, 32), value]);
+		await this.provider.send('anvil_setStorageAt', [to_address(a), ethers.ethers.toBeHex(slot, 32), value]);
 	}
-	setStorageBytes(a, slot, v) {
-		// TODO: this does not cleanup (zero higher slots)
-		a = to_address(a);
-		v = ethers.ethers.getBytes(v);
+	async getStorageBytesLength(a, slot) {
+		return parse_bytes_length(await this.provider.getStorage(a, slot));
+	}
+	async getStorageBytes(a, slot, maxBytes = 4096) {
+		slot = BigInt(slot);
+		const header = await this.provider.getStorage(a, slot);
+		const size = parse_bytes_length(header);
+		if (maxBytes && Number(size) > maxBytes) throw new Error(`too large: ${size} > ${maxBytes}`);
+		if (size < 32) return ethers.ethers.getBytes(header).slice(0, Number(size));
+		const v = new Uint8Array(Number(size)); // throws if huge
+		let off = BigInt(ethers.ethers.solidityPackedKeccak256(['uint256'], [slot]));
+		const ps = [];
+		for (let i = 0; i < v.length; i += 32) {
+			const pos = i;
+			ps.push(this.provider.getStorage(a, off++).then(x => {
+				let u = ethers.ethers.getBytes(x);
+				const n = v.length - pos;
+				if (n < 32) u = u.subarray(0, n);
+				v.set(u, pos);
+			}));
+		}
+		await Promise.all(ps);
+		return v;
+	}
+	async setStorageBytes(a, slot, v, zeroBytes = true) {
+		slot = BigInt(slot);
+		v = v ? ethers.ethers.getBytes(v) : new Uint8Array(0);
+		let off = BigInt(ethers.ethers.solidityPackedKeccak256(['uint256'], [slot]));
+		let offEnd = 0n;
+		if (zeroBytes) {
+			if (zeroBytes === true) zeroBytes = 4096;
+			const size = await this.getStorageBytesLength(a, slot);
+			if (Number(size) > zeroBytes) throw new Error(`prior size too large: ${size} > ${zeroBytes}`);
+			offEnd = off + ((size + 31n) >> 5n);
+		}
+		const ps = [];
 		if (v.length < 32) {
-			let u = new Uint8Array(32);
+			const u = new Uint8Array(32);
 			u.set(v);
 			u[31] = v.length << 1;
-			return this.setStorageValue(a, slot, u);
-		}
-		slot = BigInt(slot);
-		let ps = [this.setStorageValue(a, slot, (v.length << 1) | 1)];
-		let off = BigInt(ethers.ethers.solidityPackedKeccak256(['uint256'], [slot]));
-		let pos = 0;
-		while (pos < v.length) {
-			let end = pos + 32;
-			if (end > v.length) {
-				let u = new Uint8Array(32);
-				u.set(v.subarray(pos));
-				ps.push(this.setStorageValue(a, off, u));
-				break;
+			ps.push(this.setStorageValue(a, slot, u));
+		} else {
+			ps.push(this.setStorageValue(a, slot, (v.length << 1) | 1));
+			for (let pos = 0; pos < v.length; ) {
+				const end = pos + 32;
+				if (end > v.length) {
+					const u = new Uint8Array(32);
+					u.set(v.subarray(pos));
+					ps.push(this.setStorageValue(a, off++, u));
+				} else {
+					ps.push(this.setStorageValue(a, off++, v.subarray(pos, end)));
+				}
+				pos = end;
 			}
-			ps.push(this.setStorageValue(a, off++, v.subarray(pos, end)));
-			pos = end;
 		}
-		return Promise.all(ps);
+		while (off < offEnd) {
+			ps.push(this.setStorageValue(a, off++, 0));
+		}
+		await Promise.all(ps);
+	}
+	async overrideENS({name, node, owner, resolver}) {
+		// https://etherscan.io/address/0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e
+		const slot = BigInt(ethers.ethers.solidityPackedKeccak256(["bytes32", "uint256"], [node ?? ethers.ethers.namehash(name), 0n]));
+		function coerce_address(x) {
+			if (x === null) return 0;
+			const a = to_address(x);
+			if (!a) throw new TypeError(`expected address: ${x}`);
+			return a;
+		}
+		owner = coerce_address(owner);
+		resolver = coerce_address(resolver);
+		if (resolver !== undefined && BigInt(resolver)) {
+			// BUG: https://github.com/foundry-rs/foundry/issues/9743
+			// for some reason, the owner needs to be nonzero if the resolver is set
+			if (owner === undefined) {
+				owner = BigInt(await this.provider.getStorage(this.ensRegistry, slot));
+			}
+			if (!BigInt(owner)) owner = 1;
+		} 
+		await Promise.all([
+			owner !== undefined && this.setStorageValue(this.ensRegistry, slot, owner), 
+			resolver !== undefined && this.setStorageValue(this.ensRegistry, slot + 1n, resolver)
+		]);
 	}
 	requireWallet(...xs) {
 		for (let x of xs) {
@@ -1344,15 +1407,24 @@ class Foundry extends FoundryBase {
 			}
 		}
 	}
-	async deployed({from, at, ...artifactLike}) {
-		// TODO: expose this
-		let w = await this.ensureWallet(from || DEFAULT_WALLET);
-		let {abi, ...artifact} = await this.resolveArtifact(artifactLike);
-		let c = new ethers.ethers.Contract(at, abi, w);
-		c[Symbol_name] = `${artifact.contract}<${smol_addr(c.target)}>`; 
+	async attach(args0) {
+		let {
+			to,
+			from = DEFAULT_WALLET,
+			abis = [],
+			parseAllErrors = true,
+			...artifactLike
+		} = args0;
+		from = await this.ensureWallet(from);
+		let {abi: abi0, contract} = await this.resolveArtifact(artifactLike);
+		let abi = mergeABI(abi0, ...abis);
+		this.addABI(abi);
+		if (parseAllErrors) abi = this.parseAllErrors(abi);
+		let c = new ethers.ethers.Contract(to_address(to), abi, from);
+		c[Symbol_name] = `${contract}<${smol_addr(c.target)}>`; 
 		c[Symbol_foundry] = this;
+		c.__info = {contract};
 		c.toString = get_NAME;
-		c.__artifact = artifact;
 		this.accounts.set(c.target, c);
 		return c;
 	}
@@ -1547,6 +1619,18 @@ function extract_links(linkReferences) {
 			return {file, contract, offsets};
 		});
 	});
+}
+
+function parse_bytes_length(header) {
+	header = BigInt(header);
+	let size = header >> 1n;
+	if (header & 1n) {
+		if (size < 32n) throw new Error(`invalid large bytes encoding: ${size} < 32`);
+	} else {
+		size &= 255n;
+		if (size >= 32n) throw new Error(`invalid small bytes encoding: ${size} > 31`);
+	}
+	return size;
 }
 
 function split(s) {

@@ -24,7 +24,7 @@ import { EventEmitter } from "node:events";
 import { ChildProcess } from "node:child_process";
 
 type DevWallet = Omit<Wallet, "connect">;
-type DeployedBaseContract = Omit<
+type PatchedBaseContract = Omit<
 	BaseContract,
 	"target" | "connect" | "attach"
 > & {
@@ -32,19 +32,23 @@ type DeployedBaseContract = Omit<
 	connect(...args: Parameters<Contract["connect"]>): Contract;
 	attach(...args: Parameters<Contract["attach"]>): Contract;
 	waitForDeployment(): Promise<Contract>;
-} & {
+};
+type FoundryContract = PatchedBaseContract &
+	Omit<ContractInterface, keyof PatchedBaseContract> &
+	EventEmitterable<ContractEventName> & {
+		readonly __info: {
+			readonly contract: string;
+		};
+	};
+type DeployedContract = FoundryContract & {
 	readonly __receipt: TransactionReceipt;
 	readonly __info: {
-		readonly contract: string;
 		readonly origin: string;
 		readonly bytecode: Uint8Array;
 		readonly libs: { [cid: string]: string };
 		readonly from: DevWallet;
 	};
 };
-type DeployedContract = DeployedBaseContract &
-	Omit<ContractInterface, keyof DeployedBaseContract> &
-	EventEmitterable<ContractEventName>;
 
 type EventLike = string | EventFragment;
 type InterfaceLike =
@@ -280,7 +284,7 @@ export class FoundryDeployer extends FoundryBase {
 }
 
 export class Foundry extends FoundryBase {
-	static of(x: DevWallet | DeployedContract): Foundry;
+	static of(x: DevWallet | FoundryContract): Foundry;
 	static launch(
 		options?: {
 			port?: number;
@@ -300,11 +304,13 @@ export class Foundry extends FoundryBase {
 		} & FoundryBaseOptions
 	): Promise<Foundry>;
 
+	ensRegistry: string;
+
 	readonly anvil: string;
 	readonly proc: ChildProcess;
 	readonly provider: WebSocketProvider;
 	readonly wallets: Record<string, DevWallet>;
-	readonly accounts: Map<string, DeployedContract | DevWallet>;
+	readonly accounts: Map<string, DevWallet | FoundryContract>;
 	readonly endpoint: string;
 	readonly chain: number;
 	readonly port: number;
@@ -316,15 +322,34 @@ export class Foundry extends FoundryBase {
 
 	// note: these are silent fail on forks
 	nextBlock(options?: { blocks?: number; sec?: number }): Promise<void>;
+
 	setStorageValue(
-		address: string | DeployedContract,
+		address: string | Contract,
 		slot: BigNumberish,
-		value: BigNumberish | Uint8Array
+		value: BigNumberish | Uint8Array | undefined
 	): Promise<void>;
-	setStorageBytes(
-		address: string | DeployedContract,
+	getStorageBytesLength(
+		address: string | Contract,
+		slot: BigNumberish
+	): Promise<bigint>;
+	getStorageBytes(
+		address: string | Contract,
 		slot: BigNumberish,
-		value: BytesLike
+		maxBytes?: number
+	): Promise<Uint8Array>;
+	setStorageBytes(
+		address: string | Contract,
+		slot: BigNumberish,
+		value: BytesLike | undefined,
+		zeroBytes?: boolean | number
+	): Promise<void>;
+
+	overrideENS(
+		options: {
+			owner?: string | FoundryContract | null;
+			resolver?: string | FoundryContract | null;
+			registry?: string | FoundryContract;
+		} & ({ name: string } | { node: string })
 	): Promise<void>;
 
 	// require a wallet
@@ -332,12 +357,18 @@ export class Foundry extends FoundryBase {
 	randomWallet(
 		options?: { prefix?: string } & WalletOptions
 	): Promise<DevWallet>;
-	ensureWallet(
-		wallet: WalletLike,
-		options?: WalletOptions
-	): Promise<DevWallet>;
+	ensureWallet(wallet: WalletLike, options?: WalletOptions): Promise<DevWallet>;
 
 	resolveArtifact(artifact: ArtifactLike): Promise<Artifact>;
+
+	attach(
+		options: {
+			to: string | FoundryContract;
+			from?: WalletLike;
+			abis?: InterfaceLike[];
+			parseAllErrors?: boolean;
+		} & ArtifactLike
+	): Promise<FoundryContract>;
 
 	// compile and deploy a contract, returns Contract with ABI
 	deploy(
@@ -346,7 +377,7 @@ export class Foundry extends FoundryBase {
 			| ({
 					from?: WalletLike;
 					args?: any[];
-					libs?: { [cid: string]: string | DeployedContract };
+					libs?: { [cid: string]: string | FoundryContract };
 					abis?: InterfaceLike[];
 					parseAllErrors?: boolean;
 			  } & ConfirmOptions &
