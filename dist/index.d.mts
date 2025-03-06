@@ -152,12 +152,6 @@ export class FoundryBase extends EventEmitter {
 	static profile(): string;
 	static root(cwd?: PathLike): Promise<string>;
 	static load(options?: FoundryBaseOptions): Promise<FoundryBase>;
-	build(force?: boolean): Promise<BuildInfo>;
-	compile(
-		sol: string | string[],
-		options?: CompileOptions
-	): Promise<CodeArtifact>;
-	find(options: { file: string; contract?: string }): Promise<string>;
 	readonly root: string;
 	readonly profile: string;
 	readonly config: {
@@ -169,7 +163,16 @@ export class FoundryBase extends EventEmitter {
 	};
 	readonly forge: string;
 	readonly built?: BuildInfo;
+	compiler(solcVersion: string): Promise<string>;
 	version(): Promise<string>;
+
+	build(force?: boolean): Promise<BuildInfo>;
+	compile(
+		sol: string | string[],
+		options?: CompileOptions
+	): Promise<CodeArtifact>;
+	find(options: { file: string; contract?: string }): Promise<string>;
+	resolveArtifact(artifact: ArtifactLike): Promise<Artifact>;
 
 	on<E extends keyof FoundryEventMap>(
 		name: E,
@@ -358,8 +361,6 @@ export class Foundry extends FoundryBase {
 		options?: { prefix?: string } & WalletOptions
 	): Promise<DevWallet>;
 	ensureWallet(wallet: WalletLike, options?: WalletOptions): Promise<DevWallet>;
-
-	resolveArtifact(artifact: ArtifactLike): Promise<Artifact>;
 
 	attach(
 		options: {

@@ -466,7 +466,7 @@ class FoundryBase extends EventEmitter {
 	}
 	async compiler(solcVersion) {
 		// https://book.getfoundry.sh/reference/config/solidity-compiler#solc_version
-		if (!is_exact_semver(solcVersion)) throw new Type('expected exact semver: x.y.z')
+		if (!is_exact_semver(solcVersion)) throw new TypeError('expected exact semver: x.y.z')
 		const {compiler} = await compile('contract C {}', {solcVersion, foundry: this});
 		return compiler;
 	}
