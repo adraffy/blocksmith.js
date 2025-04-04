@@ -21,21 +21,7 @@ dump_info(await f.deploy(fileArtifact.bytecode));
 console.log('\n[deployed: artifact]');
 dump_info(await f.deploy(fileArtifact));
 
-console.log('\n[merge abi: 1 item]');
-console.log(await f.abi(`interface X {
-	function f() external view returns (uint256);	
-}`));
-
-console.log('\n[merge abi: 2 items]');
-console.log(await f.abi(`
-	interface X {
-		function f() external view returns (uint256);	
-	}
-	contract Y is X {
-		function f() external view returns (uint256) {
-			return 1;
-		}
-	}
-`));
+console.log('\n[parseArtifacts]');
+console.log(await f.parseArtifacts());
 
 await f.shutdown();

@@ -362,7 +362,6 @@ export class Foundry extends FoundryBase {
 	): Promise<DevWallet>;
 	ensureWallet(wallet: WalletLike, options?: WalletOptions): Promise<DevWallet>;
 
-	abi(options: ArtifactLike): Promise<Interface>;
 	attach(
 		options: {
 			to: string | FoundryContract;
@@ -394,6 +393,7 @@ export class Foundry extends FoundryBase {
 
 	addABI(abi: Interface): void;
 	parseAllErrors(iface: Interface): Interface;
+	parseArtifacts(): Promise<void>;
 
 	findEvent(event: EventLike): { abi: Interface; frag: EventFragment };
 	getEventResults(

@@ -519,6 +519,21 @@ class FoundryBase extends EventEmitter {
 		this.emit('built', buildInfo);
 		return this.built = {date: new Date()};
 	}
+	async artifacts() {
+		await this.build();
+		const {out} = this.config;
+		const files = Array.from(await promises.readdir(out, {recursive: true}));
+		const artifacts = [];
+		await Promise.all(files.map(async frag => {
+			if (!frag.endsWith('.json')) return;
+			try {
+				const artifact = await this.fileArtifact({file: node_path.join(out, frag)});
+				artifacts.push(artifact);
+			} catch (err) {
+			}
+		}));
+		return artifacts;
+	}
 	async find({file, contract}) {
 		await this.build();
 		file = remove_sol_ext(file); // remove optional extension
@@ -1405,11 +1420,6 @@ class Foundry extends FoundryBase {
 			}
 		}
 	}
-	async abi(arg0) {
-		const {abi} = await this.resolveArtifact(artifact_from(arg0));
-		this.addABI(abi);
-		return abi;
-	}
 	async attach(args0) {
 		let {
 			to,
@@ -1493,6 +1503,11 @@ class Foundry extends FoundryBase {
 			}
 			bucket.set(ethers.ethers.id(e.format('sighash')), abi);
 		});
+	}
+	async parseArtifacts() {
+		for (const {abi} of await this.artifacts()) {
+			this.addABI(abi);
+		}
 	}
 	parseAllErrors(abi) {
 		if (abi.makeError !== this.error_fixer) {

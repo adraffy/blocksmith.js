@@ -1,52 +1,76 @@
-import {Foundry, compile} from '../../src/index.js';
-import {test, after} from 'node:test';
-import assert from 'node:assert/strict';
+import { Foundry, compile } from "../../src/index.js";
+import { test, after } from "node:test";
+import assert from "node:assert/strict";
 
-test('deploy file', async () => {
-	let foundry = await Foundry.launch();
+async function F() {
+	const foundry = await Foundry.launch({infoLog: false});
 	after(foundry.shutdown);
-	let contract = await foundry.deploy({file: 'Deploy'});
+	return foundry;
+}
+
+test("deploy file", async () => {
+	const foundry = await F();
+	const contract = await foundry.deploy({ file: "Deploy" });
 	assert.equal(await contract.read(), 1n);
 	await foundry.confirm(contract.write(2n));
 });
 
-test('deploy inline', async () => {
-	let foundry = await Foundry.launch();
-	after(foundry.shutdown);
-	let contract = await foundry.deploy({sol: `
-		contract Chonk {
-			function f() external pure returns (string memory) {
-				return 'chonk';
+test("deploy inline", async () => {
+	const foundry = await F();
+	const contract = await foundry.deploy({
+		sol: `
+			contract Chonk {
+				function f() external pure returns (string memory) {
+					return 'chonk';
+				}
+				function g(uint256 a, uint256 b) external pure returns (uint256) {
+					return a * 1000 + b;
+				}
 			}
-			function g(uint256 a, uint256 b) external pure returns (uint256) {
-				return a * 1000 + b;
-			}
-		}
-	`});
-	assert.equal(await contract.f(), 'chonk');
+		`,
+	});
+	assert.equal(await contract.f(), "chonk");
 	assert.equal(await contract.g(69, 420), 69420n);
 });
 
-test('deploy w/inline import', async () => {
-	let foundry = await Foundry.launch();
-	after(foundry.shutdown);
-	let contract = await foundry.deploy({sol: `
-		import {Deploy} from "@test/deploy/Deploy.sol";
-		contract Chonk is Deploy {
-		}
-	`});
+test("deploy inline w/interface", async () => {
+	const foundry = await F();
+	await foundry.deploy({
+		sol: `
+			interface X {
+				function f() external view returns (uint256);	
+			}
+			contract Y is X {
+				function f() external view returns (uint256) {
+					return 1;
+				}
+			}
+	`,
+	});
+});
+
+test("deploy w/inline import", async () => {
+	const foundry = await F();
+	const contract = await foundry.deploy({
+		sol: `
+			import {Deploy} from "@test/deploy/Deploy.sol";
+			contract Chonk is Deploy {
+			}
+		`,
+	});
 	assert.equal(await contract.read(), 1n);
 });
 
-test('deploy w/import', async () => {
-	let foundry = await Foundry.launch();
-	after(foundry.shutdown);
-	let contract = await foundry.deploy({import: '@test/deploy/Deploy.sol'});
+test("deploy w/import", async () => {
+	const foundry = await F();
+	const contract = await foundry.deploy({
+		import: "@test/deploy/Deploy.sol",
+	});
 	assert.equal(await contract.read(), 1n);
 });
 
-test('solc tagged template', async () => {
-	let {bytecode} = await compile`
+test("solc tagged template", async () => {
+	const { bytecode } = await compile`
 		contract Chonk {
 			function f() external pure returns (string memory) {
 				return 'chonk';
@@ -56,5 +80,5 @@ test('solc tagged template', async () => {
 			}
 		}
 	`;
-	assert.equal(bytecode.slice(0, 10), '0x60806040');
+	assert.equal(bytecode.slice(0, 10), "0x60806040");
 });
