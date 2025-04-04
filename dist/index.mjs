@@ -291,9 +291,10 @@ async function compile(sol, options = {}) {
 		sol = sol.join('\n');
 	}
 	if (!contract) {
-		let match = sol.match(/(contract|library)\s([a-z$_][0-9a-z$_]*)/i);
-		if (!match) throw error_with('expected contract name', {sol});
-		contract = match[2];
+		let v = [...sol.matchAll(/(contract|library|interface)\s([a-z$_][0-9a-z$_]*)/ig)];
+		if (v.length > 1) v = v.filter(x => x[1] !== 'interface');
+		if (v.length != 1) throw error_with('expected contract name', {sol, names: v.map(x => x[2])});
+		contract = v[0][2];
 	}
 	if (autoHeader) {
 		if (!/^\s*pragma\s+solidity/m.test(sol)) {
@@ -539,7 +540,7 @@ class FoundryBase extends EventEmitter {
 		return compile(sol, {...options, foundry: this});
 	}
 	async resolveArtifact(arg0) {
-		let {import: imported, bytecode, abi, sol, contract, ...rest} = arg0;
+		let {import: imported, bytecode, abi, sol, contract, ...rest} = artifact_from(arg0);
 		if (bytecode) { // bytecode + abi
 			contract ??= 'Unnamed';
 			abi = iface_from(abi ?? []);
@@ -722,15 +723,12 @@ class FoundryDeployer extends FoundryBase {
 		return new ethers.Wallet(key, this.provider);
 	}
 	async prepare(arg0) {
-		if (typeof arg0 === 'string') {
-			arg0 = arg0.startsWith('0x') ? {bytecode: arg0} : {sol: arg0};
-		}
 		let {
 			args = [],
 			libs = {},
 			confirms,
 			...artifactLike
-		} = arg0;
+		} = artifact_from(arg0);
 		let {type, abi, links, bytecode: bytecode0, cid, root, compiler} = await this.resolveArtifact(artifactLike);
 		if (!root) throw new Error('unsupported deployment type');
 		if (cid.startsWith('/')) { // if (type === 'code') {
@@ -1405,6 +1403,11 @@ class Foundry extends FoundryBase {
 			}
 		}
 	}
+	async abi(arg0) {
+		const {abi} = await this.resolveArtifact(artifact_from(arg0));
+		this.addABI(abi);
+		return abi;
+	}
 	async attach(args0) {
 		let {
 			to,
@@ -1427,9 +1430,6 @@ class Foundry extends FoundryBase {
 		return c;
 	}
 	async deploy(arg0) {
-		if (typeof arg0 === 'string') {
-			arg0 = arg0.startsWith('0x') ? {bytecode: arg0} : {sol: arg0};
-		}
 		let {
 			from = DEFAULT_WALLET,
 			args = [],
@@ -1439,7 +1439,7 @@ class Foundry extends FoundryBase {
 			silent = false,
 			parseAllErrors = true,
 			...artifactLike
-		} = arg0;
+		} = artifact_from(arg0);
 		from = await this.ensureWallet(from);
 		let {abi: abi0, links, bytecode: bytecode0, origin, contract} = await this.resolveArtifact(artifactLike);
 		let abi = mergeABI(abi0, ...abis);
@@ -1576,6 +1576,10 @@ function abi_from_solc_json(json) {
 
 function iface_from(x) {
 	return x instanceof ethers.BaseContract ? x.interface : ethers.Interface.from(x);
+}
+
+function artifact_from(x) {
+	 return typeof x === 'string' ? x.startsWith('0x') ? {bytecode: x} : {sol: x} : x;
 }
 
 function mergeABI(...a) {

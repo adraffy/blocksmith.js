@@ -172,7 +172,7 @@ export class FoundryBase extends EventEmitter {
 		options?: CompileOptions
 	): Promise<CodeArtifact>;
 	find(options: { file: string; contract?: string }): Promise<string>;
-	resolveArtifact(artifact: ArtifactLike): Promise<Artifact>;
+	resolveArtifact(artifact: ArtifactLike | string): Promise<Artifact>;
 
 	on<E extends keyof FoundryEventMap>(
 		name: E,
@@ -362,6 +362,7 @@ export class Foundry extends FoundryBase {
 	): Promise<DevWallet>;
 	ensureWallet(wallet: WalletLike, options?: WalletOptions): Promise<DevWallet>;
 
+	abi(options: ArtifactLike | string): Promise<Interface>;
 	attach(
 		options: {
 			to: string | FoundryContract;
