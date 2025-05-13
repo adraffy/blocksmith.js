@@ -3,7 +3,7 @@ import { test, after } from "node:test";
 import assert from "node:assert/strict";
 
 async function F() {
-	const foundry = await Foundry.launch({infoLog: false});
+	const foundry = await Foundry.launch({infoLog: true});
 	after(foundry.shutdown);
 	return foundry;
 }

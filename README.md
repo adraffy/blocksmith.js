@@ -39,3 +39,5 @@
 ### Funding Support
 
 * Received [GG20 ENS Retro Grant](https://discuss.ens.domains/t/gg20-ens-identity-round-conclusion/19301) from Arbitrum DAO, Gitcoin, SpruceID, and ThankARB
+* [GG22 OSS - Developer Tooling and Libraries](https://builder.gitcoin.co/#/chains/8453/registry/0x/projects/0xf1082b71aa913e5749b81b0c1f9c0be7fc94b60c1d34a9d668575a0b141e59e6)
+* [GG23 OSS - Developer Tooling and Libraries](https://builder.gitcoin.co/#/chains/42161/registry/0x/projects/0x2b9be3c545fd71f47c0bc1c17c04baeb8f3d4c350b777b1aeff5a093216e47a3)
