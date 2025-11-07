@@ -20,3 +20,4 @@ import './node.js';
 //import './resolver.js'; (SLOW)
 import './deploy/test.js';
 import './ens-encoded-dns/test.js';
+import './impersonate.js';
