@@ -6,6 +6,7 @@ import {
 	Fragment,
 	JsonFragment,
 	TransactionReceipt,
+	TransactionRequest,
 	TransactionResponse,
 	TransactionDescription,
 	BigNumberish,
@@ -28,6 +29,7 @@ type ImpersonatedWallet = {
 	readonly provider: JsonRpcApiProvider;
 	getNonce(): Promise<number>;
 	setNonce(nonce: BigNumberish): Promise<void>;
+	sendTransaction(tx: TransactionRequest): Promise<TransactionResponse>;
 };
 type DevWallet = Omit<Wallet, "connect">;
 type PatchedBaseContract = Omit<
@@ -251,6 +253,7 @@ export class FoundryDeployer extends FoundryBase {
 				| "mainnet"
 				| "sepolia"
 				| "holesky"
+				| "hoodi"
 				| "arb1"
 				| "base"
 				| "op"
