@@ -868,7 +868,7 @@ export class FoundryDeployer extends FoundryBase {
 				break;
 			} else if (/already verified/i.test(result)) {
 				break;
-			} else if (/pending in queue/i.test(result)) {
+			} else if (/pending in queue/i.test(result) || /unable to locate contract/i.test(result)) {
 				this.infoLog?.(`Waiting for verification...`);
 				await new Promise(ful => setTimeout(ful, pollMs));
 			} else {
