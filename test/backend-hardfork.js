@@ -24,19 +24,23 @@ test('optimism/ecotone', async () => {
 });
 
 test('backend: unknown', async () => {
-	assert.rejects(() => Foundry.launch({
+	await assert.rejects(() => Foundry.launch({
+		infoLog: false,
 		backend: 'chonk'
 	}));
 });
 
 test('hardfork: unknown', async () => {
-	assert.rejects(() => Foundry.launch({
+	await assert.rejects(() => Foundry.launch({
+		infoLog: false,
 		hardfork: 'chonk'
 	}));
 });
 
 test('hardfork: empty', async () => {
-	assert.rejects(() => Foundry.launch({
-		hardfork: ''
-	}));
+	const foundry = await Foundry.launch({
+		infoLog: false,
+	});
+	after(foundry.shutdown);
+	assert(foundry.hardfork === foundry.config.evm_version);
 });

@@ -608,6 +608,7 @@ const PROVIDERS = {
 	mainnet: 'https://eth.drpc.org',
 	sepolia: 'https://sepolia.drpc.org',
 	holesky: 'https://holesky.drpc.org',
+	hoodi: 'https://hoodi.drpc.org',
 	base: 'https://mainnet.base.org',
 	op: 'https://mainnet.optimism.io',
 	arb1: 'https://arb1.arbitrum.io/rpc',
@@ -625,7 +626,7 @@ export class FoundryDeployer extends FoundryBase {
 		infoLog = true,
 		...rest
 	} = {}) {
-		if (!provider) provider === 'mainnet';
+		if (!provider) provider = 'mainnet';
 		if (typeof provider === 'string') {
 			provider = new ethers.JsonRpcProvider(PROVIDERS[provider] || provider, null, {staticNetwork: true});
 		}
@@ -723,7 +724,7 @@ export class FoundryDeployer extends FoundryBase {
 					args.push('--libraries', ...fmt_libraries(this.linked));
 				}
 				if (this.decodedArgs.length) {
-					args.push('--constructor-args', ...fmt_ctor_args(this.decodedArgs));
+					args.push('--constructor-args', ...fmt_ctor_args(this.decodedArgs, abi.deploy.inputs));
 				}
 				return args;
 			},
@@ -788,7 +789,7 @@ export class FoundryDeployer extends FoundryBase {
 		};
 		if (this.infoLog) {
 			// remove contract name if same as file name
-			this.infoLog(`Contract: ${ansi('93', cid.replace(/\/(.*)\.sol:\1$/, (_, x) => `/${x}.sol`))}`);
+			this.infoLog(`Contract: ${ansi('93', cid.replace(/\/(.*)\.sol:\1$/, (_, x) => `/${x}.sol`))} Chain: ${ansi('33', this.chain)}`);
 			let stats = [
 				`${ansi('33', bytecode.length)}bytes`,
 				`${ansi('33', gas)}gas`,
@@ -892,22 +893,27 @@ function fmt_libraries(linked) {
 	});
 }
 
-function fmt_ctor_args(args) {
-	return args.map((x) => {
-	  if (Array.isArray(x)) {
-		return `[${fmt_ctor_args(x).join(',')}]`;
-	  } else {
-		switch (typeof x) {
-		  case 'boolean':
-		  case 'number':
-		  case 'bigint':
-			return String(x);
-		  case 'string':
-			return x; //JSON.stringify(x);
-		  default:
-			throw new Error(`unexpected arg: ${x}`);
+function fmt_ctor_args(args, params, quote) {
+	return args.map((x, i) => {
+		const param = params[i];
+		if (param.isArray()) {
+			if (!Array.isArray(x)) throw new Error(`expected array: ${x}`);
+			return `[${fmt_ctor_args(x, Array.from(x, () => param.arrayChildren), true).join(',')}]`;
+		} else if (param.isTuple()) {
+			if (!Array.isArray(x)) throw new Error(`expected array: ${x}`);
+			return `(${fmt_ctor_args(x, param.components, true).join(',')})`;
+		} else {
+			switch (typeof x) {
+				case 'boolean':
+				case 'number':
+				case 'bigint':
+					return String(x);
+				case 'string':
+					return quote ? JSON.stringify(x) : x;
+				default:
+					throw new Error(`unexpected arg: ${x}`);
+			}
 		}
-	  }
 	});
   }
 
