@@ -23,6 +23,12 @@ import {
 import { EventEmitter } from "node:events";
 import { ChildProcess } from "node:child_process";
 
+type ImpersonatedWallet = {
+	readonly address: string;
+	readonly provider: JsonRpcApiProvider;
+	getNonce(): Promise<number>;
+	setNonce(nonce: BigNumberish): Promise<void>;
+};
 type DevWallet = Omit<Wallet, "connect">;
 type PatchedBaseContract = Omit<
 	BaseContract,
@@ -41,12 +47,13 @@ type FoundryContract = PatchedBaseContract &
 		};
 	};
 type DeployedContract = FoundryContract & {
+	readonly __create2?: { salt: string; deployer: string };
 	readonly __receipt: TransactionReceipt;
 	readonly __info: {
 		readonly origin: string;
 		readonly bytecode: Uint8Array;
 		readonly libs: { [cid: string]: string };
-		readonly from: DevWallet;
+		readonly from: DevWallet | ImpersonatedWallet;
 	};
 };
 
@@ -302,8 +309,8 @@ export class Foundry extends FoundryBase {
 			fork?: PathLike;
 			infiniteCallGas?: boolean; // default: false
 			genesisTimestamp?: number; // default: now
-			backend?: Backend; // default: 'ethereum'
-			hardfork?: string; // default: latest
+			backend?: Backend; // default: foundry.toml => 'ethereum'
+			hardfork?: string; // default: foundry.toml => latest
 		} & FoundryBaseOptions
 	): Promise<Foundry>;
 
@@ -360,7 +367,11 @@ export class Foundry extends FoundryBase {
 	randomWallet(
 		options?: { prefix?: string } & WalletOptions
 	): Promise<DevWallet>;
-	ensureWallet(wallet: WalletLike, options?: WalletOptions): Promise<DevWallet>;
+	ensureWallet(
+		wallet: WalletLike,
+		options?: WalletOptions
+	): Promise<DevWallet>;
+	impersonateWallet(address: string): Promise<ImpersonatedWallet>;
 
 	attach(
 		options: {
@@ -376,11 +387,13 @@ export class Foundry extends FoundryBase {
 		options:
 			| string
 			| ({
-					from?: WalletLike;
+					from?: WalletLike | ImpersonatedWallet;
 					args?: any[];
 					libs?: { [cid: string]: string | FoundryContract };
 					abis?: InterfaceLike[];
 					parseAllErrors?: boolean;
+					salt?: BigNumberish;
+					create2Deployer?: string;
 			  } & ConfirmOptions &
 					ArtifactLike)
 	): Promise<DeployedContract>;

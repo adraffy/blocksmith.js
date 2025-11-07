@@ -4,4 +4,7 @@
 [profile.default]
 
 src = "contracts"
-solc_version = "0.8.23"
+
+# remappings = [
+# 	'@forge/=lib/forge-std/src/'
+# ]

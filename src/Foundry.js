@@ -106,6 +106,40 @@ class ContractMap {
 	}
 }
 
+class ImpersonatedWallet {
+	constructor(foundry, address) {
+		this[Symbol_foundry] = foundry;
+		this.address = address;
+	}
+	get [Symbol_name]() { return  `As<${this.address}>`; }
+	get provider() {
+		return this[Symbol_foundry].provider;
+	}
+	async getNonce() {
+		return this.provider.getTransactionCount(this.address);
+	}
+	async setNonce(x) {
+		await this.provider.send('anvil_setNonce', [this.address, ethers.toBeHex(x)]);
+	}
+	async sendTransaction(tx) {
+		await this.provider.send('anvil_impersonateAccount', [this.address]);
+		try {
+			tx = {...tx, nonce: await this.getNonce(), from: this.address};
+			await this.provider.send('anvil_setBalance', [this.address, '0xffffffffffffffff']);
+			const hash = await this.provider.send('eth_sendTransaction', [{...tx, nonce: await this.getNonce(), from: this.address}]);
+			return {
+				hash,
+				...tx,
+				async wait() {
+					return null;
+				}
+			}
+		} finally {
+			await this.provider.send('anvil_stopImpersonatingAccount', [this.address]);
+		}
+	}
+}
+
 async function exec({cmd, args = [], env = {}, /*cwd,*/ json = true} = {}) {
 	// 20240905: bun bug
 	// https://github.com/oven-sh/bun/issues/13755
@@ -447,8 +481,11 @@ export class FoundryBase extends EventEmitter {
 	compile(sol, options = {}) {
 		return compile(sol, {...options, foundry: this});
 	}
+	// async resolveABI(arg0) {
+	// 	return (await this.resolveArtifact(arg0)).abi;
+	// }
 	async resolveArtifact(arg0) {
-		let {import: imported, bytecode, abi, sol, contract, ...rest} = artifact_from(arg0);
+		let {import: imported, bytecode, abi, sol, contract, ...rest} = expand_artifact_args(arg0);
 		if (bytecode) { // bytecode + abi
 			contract ??= 'Unnamed';
 			abi = iface_from(abi ?? []);
@@ -568,8 +605,9 @@ async function etherscanChains() {
 
 // TODO: fix this
 const PROVIDERS = {
-	mainnet: 'https://rpc.ankr.com/eth',
-	sepolia: 'https://rpc.ankr.com/eth_sepolia',
+	mainnet: 'https://eth.drpc.org',
+	sepolia: 'https://sepolia.drpc.org',
+	holesky: 'https://holesky.drpc.org',
 	base: 'https://mainnet.base.org',
 	op: 'https://mainnet.optimism.io',
 	arb1: 'https://arb1.arbitrum.io/rpc',
@@ -638,7 +676,7 @@ export class FoundryDeployer extends FoundryBase {
 			libs = {},
 			confirms,
 			...artifactLike
-		} = artifact_from(arg0);
+		} = expand_artifact_args(arg0);
 		let {type, abi, links, bytecode: bytecode0, cid, root, compiler} = await this.resolveArtifact(artifactLike);
 		if (!root) throw new Error('unsupported deployment type');
 		if (cid.startsWith('/')) { // if (type === 'code') {
@@ -888,7 +926,7 @@ export class Foundry extends FoundryBase {
 		blockSec,
 		autoClose = true,
 		genesisTimestamp,
-		hardfork = 'latest',
+		hardfork,
 		backend = 'ethereum',
 		fork, 
 		procLog,
@@ -902,10 +940,7 @@ export class Foundry extends FoundryBase {
 		if (backend !== 'ethereum' && backend !== 'optimism') {
 			throw error_with(`unknown backend: ${backend}`, {backend});
 		}
-		hardfork = hardfork.toLowerCase().trim();
-		if (hardfork === 'forge') {
-			hardfork = this.config.evm_version;
-		}
+		hardfork = hardfork?.toLowerCase().trim() || self.config.evm_version;
 		if (procLog === true) procLog = console.log.bind(console);
 		return new Promise((ful, rej) => {
 			let args = [
@@ -934,7 +969,7 @@ export class Foundry extends FoundryBase {
 			if (genesisTimestamp !== undefined) {
 				args.push('--timestamp', genesisTimestamp);
 			}
-			if (hardfork !== 'latest') {
+			if (hardfork) {
 				args.push('--hardfork', hardfork);
 			}
 			if (backend === 'optimism') {
@@ -1142,7 +1177,7 @@ export class Foundry extends FoundryBase {
 		}
 		await Promise.all(ps);
 	}
-	async overrideENS({name, node, owner, resolver}) {
+	async overrideENS({name, node, owner, resolver, registry = this.ensRegistry}) {
 		// https://etherscan.io/address/0x00000000000C2E074eC69A0dFb2997BA6C7d2e1e
 		const slot = BigInt(ethers.solidityPackedKeccak256(["bytes32", "uint256"], [node ?? ethers.namehash(name), 0n]));
 		function coerce_address(x) {
@@ -1157,13 +1192,13 @@ export class Foundry extends FoundryBase {
 			// BUG: https://github.com/foundry-rs/foundry/issues/9743
 			// for some reason, the owner needs to be nonzero if the resolver is set
 			if (owner === undefined) {
-				owner = BigInt(await this.provider.getStorage(this.ensRegistry, slot));
+				owner = BigInt(await this.provider.getStorage(registry, slot));
 			}
 			if (!BigInt(owner)) owner = 1;
 		} 
 		await Promise.all([
-			owner !== undefined && this.setStorageValue(this.ensRegistry, slot, owner), 
-			resolver !== undefined && this.setStorageValue(this.ensRegistry, slot + 1n, resolver)
+			owner !== undefined && this.setStorageValue(registry, slot, owner),
+			resolver !== undefined && this.setStorageValue(registry, slot + 1n, resolver)
 		]);
 	}
 	requireWallet(...xs) {
@@ -1213,6 +1248,11 @@ export class Foundry extends FoundryBase {
 			this.accounts.set(wallet.address, wallet);
 		}
 		return wallet;
+	}
+	impersonateWallet(a) {
+		const address = to_address(a);
+		if (!address) throw new Error(`invalid address: ${a}`);
+		return new ImpersonatedWallet(this, address);
 	}
 	pretty(x) {
 		if (x) {
@@ -1276,7 +1316,7 @@ export class Foundry extends FoundryBase {
 			let args = {gas: receipt.gasUsed, ...extra};
 			let action;
 			if (desc) {
-				Object.assign(args, desc.args.toObject());
+				Object.assign(args, result_to_object(desc.args, desc.fragment.inputs));
 				action = desc.signature;
 			} else if (tx.data?.length >= 10) {
 				action = ansi('90', tx.data.slice(0, 10));
@@ -1306,7 +1346,7 @@ export class Foundry extends FoundryBase {
 			}
 			if (event) {
 				if (event.args.length) {
-					this.infoLog(TAG_EVENT, event.signature, this.pretty(event.args.toObject()));
+					this.infoLog(TAG_EVENT, event.signature, this.pretty(result_to_object(event.args, event.fragment.inputs)));
 				} else {
 					this.infoLog(TAG_EVENT, event.signature);
 				}
@@ -1337,6 +1377,8 @@ export class Foundry extends FoundryBase {
 	async deploy(arg0) {
 		let {
 			from = DEFAULT_WALLET,
+			create2Deployer = this.config.create2_deployer,
+			salt,
 			args = [],
 			libs = {},
 			abis = [],
@@ -1344,18 +1386,34 @@ export class Foundry extends FoundryBase {
 			silent = false,
 			parseAllErrors = true,
 			...artifactLike
-		} = artifact_from(arg0);
-		from = await this.ensureWallet(from);
-		let {abi: abi0, links, bytecode: bytecode0, origin, contract} = await this.resolveArtifact(artifactLike);
+		} = expand_artifact_args(arg0);
+		if (!(from instanceof ImpersonatedWallet)) {
+			from = await this.ensureWallet(from);
+		}
+		let {abi: abi0, links, bytecode: bytecode0, origin, contract, type} = await this.resolveArtifact(artifactLike);
+		if (type == 'bytecode' && !args.length && abi0.deploy.inputs.length) {
+			abi0 = new ethers.Interface(abi0.fragments.filter(x => x !== abi0.deploy)); // remove constructor
+		}
 		let abi = mergeABI(abi0, ...abis);
 		this.addABI(abi);
 		if (parseAllErrors) abi = this.parseAllErrors(abi);
 		let {bytecode, linkedLibs} = this.linkBytecode(bytecode0, links, libs);
 		let factory = new ethers.ContractFactory(abi, bytecode, from);
 		let unsigned = await factory.getDeployTransaction(...args);
-		let tx = await from.sendTransaction(unsigned);
-		let receipt = new ethers.ContractTransactionReceipt(abi, this.provider, await tx.wait(confirms));
-		let c = new ethers.Contract(receipt.contractAddress, abi, from);
+		let tx, c;
+		if (salt) {
+			salt = ethers.toBeHex(salt, 32);
+			tx = await from.sendTransaction({
+				to: create2Deployer,
+				data: ethers.concat([salt, unsigned.data]),
+			});
+			c = new ethers.Contract(ethers.getCreate2Address(create2Deployer, salt, ethers.keccak256(unsigned.data)), abi, from);
+			c.__create2 = {deployer: create2Deployer, salt};
+		} else {
+			tx = await from.sendTransaction(unsigned);
+			c = new ethers.Contract(ethers.getCreateAddress(tx), abi, from);
+		}
+		let receipt = await tx.wait(confirms);
 		c[Symbol_name] = `${contract}<${smol_addr(c.target)}>`; // so we can deploy the same contract multiple times
 		c[Symbol_foundry] = this;
 		c.toString = get_NAME;
@@ -1364,17 +1422,19 @@ export class Foundry extends FoundryBase {
 		c.__receipt = receipt;
 		this.accounts.set(c.target, c);
 		if (!silent && this.infoLog) {
-			let stats = [
-				`${ansi('33', code.length)}bytes`,
-				`${ansi('33', receipt.gasUsed)}gas`,
-			];
+			let stats = [`${ansi('33', code.length)}bytes`];
+			if (receipt) {
+				stats.push(`${ansi('33', receipt.gasUsed)}gas`);
+			}
 			if (Object.keys(linkedLibs).length) {
 				stats.push(this.pretty(linkedLibs));
 			}
 			this.infoLog(TAG_DEPLOY, this.pretty(from), origin, this.pretty(c), ...stats);
-			this._dump_logs(receipt);
+			if (receipt) {
+				this._dump_logs(receipt);
+			}
 		}
-		this.emit('deploy', c); // tx, receipt?
+		this.emit('deploy', c);
 		return c;
 	}
 	addABI(abi) {
@@ -1488,7 +1548,7 @@ function iface_from(x) {
 	return x instanceof ethers.BaseContract ? x.interface : ethers.Interface.from(x);
 }
 
-function artifact_from(x) {
+function expand_artifact_args(x) {
 	 return typeof x === 'string' ? x.startsWith('0x') ? {bytecode: x} : {sol: x} : x;
 }
 
@@ -1543,4 +1603,28 @@ function parse_bytes_length(header) {
 		if (size >= 32n) throw new Error(`invalid small bytes encoding: ${size} > 31`);
 	}
 	return size;
+}
+
+function result_to_object(result, inputs, deep = true) {
+	if (Array.isArray(inputs)) {
+		const obj = {};
+		inputs.forEach((ty, i) => {
+			let k = ty.name;
+			const k0 = k || 'unnamed';
+			if (!k || obj[k]) {
+				for (let n = 1; obj[k = `${k0}#${n++}`]; n++) {}
+			}
+			let v = result[i];
+			if (deep && ty.isTuple() && v instanceof ethers.Result) {
+				v = result_to_object(v, ty.components);
+			}
+			obj[k] = v;
+		});
+		return obj;
+	}
+	try {
+		return result.toObject(deep);
+	} catch (err) {
+		return Object.fromEntries(result.toArray(deep).map((x, i) => [`unnamed#${i+1}`, x]));
+	}
 }
