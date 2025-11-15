@@ -379,7 +379,7 @@ export class Foundry extends FoundryBase {
 	attach(
 		options: {
 			to: string | FoundryContract;
-			from?: WalletLike;
+			from?: WalletLike | ImpersonatedWallet;
 			abis?: InterfaceLike[];
 			parseAllErrors?: boolean;
 		} & ArtifactLike

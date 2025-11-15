@@ -1,7 +1,7 @@
 import {Foundry} from '../src/index.js';
 
 let foundry = await Foundry.launch({
-	procLog: false,
+	infoLog: true
 });
 
 //foundry.provider.on("debug", (x) => console.log(x));

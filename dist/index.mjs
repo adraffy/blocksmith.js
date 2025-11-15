@@ -1089,7 +1089,7 @@ class Foundry extends FoundryBase {
 				args.push('--optimism');
 			}
 			let proc = spawn(anvil, args, {
-				env: {...process.env, RUST_LOG: 'node=info'},
+				env: {...process.env, RUST_LOG: 'anvil,node'}, // changed in 1.4
 				stdio: ['ignore', 'pipe', 'pipe'],
 			});
 			const fail = data => {

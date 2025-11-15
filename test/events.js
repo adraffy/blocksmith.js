@@ -43,10 +43,10 @@ test('event: console', async () => {
 	const foundry = await Foundry.launch({infoLog: false});
 	after(foundry.shutdown);
 	const contract = await foundry.deploy(`
-		import "forge-std/console2.sol";
+		import "forge-std/console.sol";
 		contract C {
 			function f() external {
-				console2.log("chonk");
+				console.log("chonk");
 			}
 		}
 	`);
