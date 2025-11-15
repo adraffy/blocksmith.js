@@ -259,7 +259,7 @@ export class FoundryDeployer extends FoundryBase {
 				| "op"
 				| "linea"
 				| "polygon";
-			privateKey?: string | SigningKey;
+			privateKey?: string | SigningKey | undefined;
 		} & FoundryDeployerOptions
 	): Promise<FoundryDeployer>;
 

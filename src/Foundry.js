@@ -639,8 +639,9 @@ export class FoundryDeployer extends FoundryBase {
 		self.gasToken = gasToken;
 		self.rpc = provider._getConnection().url;
 		self.chain = (await provider.getNetwork()).chainId;
+		this.infoLog?.(`Connected to Chain: ${ansi('33', this.chain)}`);
 		self.provider = provider;
-		self.privateKey = privateKey;
+		self.privateKey = privateKey; // coerces
 		return self;
 	}
 	set etherscanApiKey(key) {
@@ -789,7 +790,7 @@ export class FoundryDeployer extends FoundryBase {
 		};
 		if (this.infoLog) {
 			// remove contract name if same as file name
-			this.infoLog(`Contract: ${ansi('93', cid.replace(/\/(.*)\.sol:\1$/, (_, x) => `/${x}.sol`))} Chain: ${ansi('33', this.chain)}`);
+			this.infoLog(`Contract: ${ansi('93', cid.replace(/\/(.*)\.sol:\1$/, (_, x) => `/${x}.sol`))}`);
 			let stats = [
 				`${ansi('33', bytecode.length)}bytes`,
 				`${ansi('33', gas)}gas`,

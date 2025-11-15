@@ -746,8 +746,9 @@ class FoundryDeployer extends FoundryBase {
 		self.gasToken = gasToken;
 		self.rpc = provider._getConnection().url;
 		self.chain = (await provider.getNetwork()).chainId;
+		this.infoLog?.(`Connected to Chain: ${ansi('33', this.chain)}`);
 		self.provider = provider;
-		self.privateKey = privateKey;
+		self.privateKey = privateKey; // coerces
 		return self;
 	}
 	set etherscanApiKey(key) {
@@ -895,7 +896,7 @@ class FoundryDeployer extends FoundryBase {
 		};
 		if (this.infoLog) {
 			// remove contract name if same as file name
-			this.infoLog(`Contract: ${ansi('93', cid.replace(/\/(.*)\.sol:\1$/, (_, x) => `/${x}.sol`))} Chain: ${ansi('33', this.chain)}`);
+			this.infoLog(`Contract: ${ansi('93', cid.replace(/\/(.*)\.sol:\1$/, (_, x) => `/${x}.sol`))}`);
 			let stats = [
 				`${ansi('33', bytecode.length)}bytes`,
 				`${ansi('33', gas)}gas`,
@@ -974,7 +975,7 @@ class FoundryDeployer extends FoundryBase {
 				break;
 			} else if (/already verified/i.test(result)) {
 				break;
-			} else if (/pending in queue/i.test(result)) {
+			} else if (/pending in queue/i.test(result) || /unable to locate contract/i.test(result)) {
 				this.infoLog?.(`Waiting for verification...`);
 				await new Promise(ful => setTimeout(ful, pollMs));
 			} else {
@@ -1341,6 +1342,9 @@ class Foundry extends FoundryBase {
 			}
 		}
 	}
+	async _wrapWallet(x) {
+		return x instanceof ImpersonatedWallet ? x : this.ensureWallet(x);
+	}
 	async ensureWallet(x, {ether = 10000} = {}) {
 		if (x instanceof ethers.Wallet) return this.requireWallet(x);
 		if (!x || typeof x !== 'string' || is_address(x)) {
@@ -1473,7 +1477,7 @@ class Foundry extends FoundryBase {
 			parseAllErrors = true,
 			...artifactLike
 		} = args0;
-		from = await this.ensureWallet(from);
+		from = await this._wrapWallet(from);
 		let {abi: abi0, contract} = await this.resolveArtifact(artifactLike);
 		let abi = mergeABI(abi0, ...abis);
 		this.addABI(abi);
@@ -1499,9 +1503,7 @@ class Foundry extends FoundryBase {
 			parseAllErrors = true,
 			...artifactLike
 		} = expand_artifact_args(arg0);
-		if (!(from instanceof ImpersonatedWallet)) {
-			from = await this.ensureWallet(from);
-		}
+		from = await this._wrapWallet(from);
 		let {abi: abi0, links, bytecode: bytecode0, origin, contract, type} = await this.resolveArtifact(artifactLike);
 		if (type == 'bytecode' && !args.length && abi0.deploy.inputs.length) {
 			abi0 = new ethers.Interface(abi0.fragments.filter(x => x !== abi0.deploy)); // remove constructor
