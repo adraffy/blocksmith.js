@@ -268,6 +268,7 @@ async function exec({cmd, args = [], env = {}, /*cwd,*/ json = true} = {}) {
 	// https://github.com/oven-sh/bun/issues/13972
 	// 20240921: another attempt to fix this bun shit
 	// just yolo swap the buffers if it parses incorrectly
+	// 20251120: hack to support "Nothing to compile"
 	try {
 		let stdout = await new Promise((ful, rej) => {
 			let proc = node_child_process.spawn(cmd, args, {
@@ -298,6 +299,14 @@ async function exec({cmd, args = [], env = {}, /*cwd,*/ json = true} = {}) {
 		}
 		try {
 			const buf = Buffer.concat(stdout);
+			if (json && args[0] === 'build' && buf.toString().trim() === 'Nothing to compile') {
+				return {
+					errors: [],
+					sources: [],
+					contracts: {},
+					build_infos: [],
+				};
+			}
 			return JSON.parse(buf);
 		} catch (bug) {
 			if (stdout.length > 1) {
@@ -959,7 +968,7 @@ class FoundryDeployer extends FoundryBase {
 			} else if (/unable to locate contract/i.test(result)) {
 				if (retry > 0) {
 					--retry;
-					this.infoLog?.(`Waiting for indexer...`);
+					this.infoLog?.(`Waiting for indexer... (${retry})`);
 					await new Promise(ful => setTimeout(ful, pollMs));
 				} else {
 					throw error_with(`expected contract` , {chain: this.chain, address});
@@ -978,7 +987,7 @@ class FoundryDeployer extends FoundryBase {
 			} else if (/already verified/i.test(result)) {
 				break;
 			} else if (/pending in queue/i.test(result) || /unable to locate contract/i.test(result)) {
-				this.infoLog?.(`Waiting for verification...`);
+				this.infoLog?.(`Waiting for verification... (${retry})`);
 				await new Promise(ful => setTimeout(ful, pollMs));
 			} else {
 				throw error_with(`etherscan: ${result}`, {result, guid, url: url.toString()});

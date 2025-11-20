@@ -4,6 +4,8 @@
 
 `npm i @adraffy/blocksmith` [&check;](https://www.npmjs.com/package/@adraffy/blocksmith)
 
+> For TypeScript, set `tsconfig.json` &rarr; `"noUncheckedIndexedAccess": false`
+
 * see [**types**](./dist/index.d.mts) / designed for [Foundry](https://github.com/foundry-rs/foundry) + [ethers](https://github.com/ethers-io/ethers.js).
 * compatible with any async test runner, including [node:test](https://nodejs.org/api/test.html)
 * designed for complex [EIP-3668](https://eips.ethereum.org/EIPS/eip-3668) contracts 
