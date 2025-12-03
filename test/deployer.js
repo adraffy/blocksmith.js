@@ -5,7 +5,9 @@ const deployer = await FoundryDeployer.load({
 	privateKey: process.env.PRIVATE_KEY,
 });
 
-{
+console.log(deployer.etherscanApiKey);
+
+if (0) {
 	const deployable = await deployer.prepare(`
 		import "forge-std/console2.sol";
 		contract C {
@@ -15,16 +17,31 @@ const deployer = await FoundryDeployer.load({
 		}
 	`);
 	console.log(deployable);
-	console.log(deployer.etherscanApiKey);
-
-
-	// const {contract, receipt} = await info.deploy();
-	// await info.verifyEtherscan();
-
-	// console.log(contract, receipt);
 }
 
-{
+
+if (1) {
+	const deployable = await deployer.prepare({
+		sol: `
+			struct S {
+				string s;
+				bytes v;
+				bytes32 x;
+				address a;
+			}
+			contract C {
+				constructor(S memory) {}
+			}
+		`,
+		args: [['ab', '0x'.padEnd(90, '0'), '0x'.padEnd(66, '0'), '0x'.padEnd(42, '0')]]
+	});
+	console.log(deployable);
+	console.log(deployable.deployArgs());
+	await deployable.deploy();
+}
+
+
+if (0) {
 	const deployable = await deployer.prepare({
 		sol: `contract C {
 			struct S {

@@ -789,11 +789,11 @@ export class FoundryDeployer extends FoundryBase {
 				const {cid, encodedArgs, compiler, address} = this;
 				return self.verifyEtherscan({
 					address,
-					...a,
 					cid,
 					encodedArgs,
 					compiler,
 					json: await this.json(),
+					...a,
 				});
 			}
 		};
@@ -919,7 +919,7 @@ function fmt_ctor_args(args, params, quote) {
 				case 'bigint':
 					return String(x);
 				case 'string':
-					return quote ? JSON.stringify(x) : x;
+					return quote && !/^[0-9a-z]*$/.test(x) ? JSON.stringify(x) : x;
 				default:
 					throw new Error(`unexpected arg: ${x}`);
 			}
