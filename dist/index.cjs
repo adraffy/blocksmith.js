@@ -928,7 +928,7 @@ class FoundryDeployer extends FoundryBase {
 		}
 		return ret;
 	}
-	async verifyEtherscan({json, cid, address, apiKey, encodedArgs, compiler, pollMs = 5000, retry = 10} = {}) {
+	async verifyEtherscan({json, cid, address, apiKey, encodedArgs, compiler, pollMs = 5000, retry = 30} = {}) {
 		const t0 = Date.now();
 		
 		apiKey ??= this.etherscanApiKey;
@@ -1027,7 +1027,7 @@ function fmt_ctor_args(args, params, quote) {
 				case 'bigint':
 					return String(x);
 				case 'string':
-					return quote && !/^[0-9a-z]*$/.test(x) ? JSON.stringify(x) : x;
+					return quote && !/^[0-9a-z]*$/i.test(x) ? JSON.stringify(x) : x;
 				default:
 					throw new Error(`unexpected arg: ${x}`);
 			}
