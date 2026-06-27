@@ -1,42 +1,43 @@
 {
-	"name": "@adraffy/blocksmith",
-	"version": "0.1.59",
-	"description": "Minimal Ethereum Testing Framework for Foundry + ethers",
-	"type": "module",
-	"exports": {
-		"import": "./dist/index.mjs",
-		"require": "./dist/index.cjs"
-	},
-	"files": [
-		"./dist"
-	],
-	"repository": {
-		"type": "git",
-		"url": "git+https://github.com/adraffy/blocksmith.js.git"
-	},
-	"license": "MIT",
-	"homepage": "https://github.com/adraffy/blocksmith.js#readme",
-	"author": "raffy.eth",
-	"scripts": {
-		"start": "node test/deploy/test.js",
-		"test": "node test/test-quick.js",
-		"test-all": "node test/test-all.js",
-		"build": "cp dist/index.d.mts dist/index.d.cts && rollup -c && npm pack"
-	},
-	"dependencies": {
-		"ethers": "^6.15"
-	},
-	"devDependencies": {
-		"rollup": "^4.53.0"
-	},
-	"keywords": [
-		"Ethereum",
-		"Solidity",
-		"Foundry",
-		"Forge",
-		"Anvil",
-		"Hardhat",
-		"ENS",
-		"Ethereum Naming System"
-	]
+  "name": "@adraffy/blocksmith",
+  "version": "0.1.59",
+  "description": "Minimal Ethereum Testing Framework for Foundry + ethers",
+  "type": "module",
+  "exports": {
+    "import": "./dist/index.mjs",
+    "require": "./dist/index.cjs"
+  },
+  "files": [
+    "./dist"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/adraffy/blocksmith.js.git"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/adraffy/blocksmith.js#readme",
+  "author": "raffy.eth",
+  "scripts": {
+    "start": "node test/deploy/test.js",
+    "test": "node test/test-quick.js",
+    "test-all": "node test/test-all.js",
+    "build": "cp dist/index.d.mts dist/index.d.cts && rollup -c && npm pack"
+  },
+  "dependencies": {
+    "ethers": "^6.15"
+  },
+  "devDependencies": {
+    "rollup": "^4.53.0",
+    "ethers-multicall-utils": "^2.1.4"
+  },
+  "keywords": [
+    "Ethereum",
+    "Solidity",
+    "Foundry",
+    "Forge",
+    "Anvil",
+    "Hardhat",
+    "ENS",
+    "Ethereum Naming System"
+  ]
 }
