@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { ethers } from 'ethers';
 import { createWriteStream } from 'node:fs';
-import { mkdtemp, realpath, rm, mkdir, writeFile, access, readdir, readFile } from 'node:fs/promises';
+import { realpath, access, readdir, readFile, mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises';
 import { join, dirname, basename, relative, sep, normalize } from 'node:path';
 import { tmpdir } from 'node:os';
 import { inspect } from 'node:util';
@@ -406,8 +406,9 @@ async function compile(sol, options = {}) {
 	if (evmVersion) config.evm_version = evmVersion;
 	if (viaIR !== undefined) config.via_ir = !!viaIR;
 
+	// config_file is <root>/foundry.toml, which forge discovers via --root
+	// note: forge >= 1.10 rejects --root with --config-path
 	await writeFile(config_file, encode({profile: {[profile]: config}}));
-	args.push('--config-path', config_file);
 
 	const buildInfo = {
 		started: new Date(),

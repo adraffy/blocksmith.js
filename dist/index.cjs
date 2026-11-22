@@ -408,8 +408,9 @@ async function compile(sol, options = {}) {
 	if (evmVersion) config.evm_version = evmVersion;
 	if (viaIR !== undefined) config.via_ir = !!viaIR;
 
+	// config_file is <root>/foundry.toml, which forge discovers via --root
+	// note: forge >= 1.10 rejects --root with --config-path
 	await promises.writeFile(config_file, encode({profile: {[profile]: config}}));
-	args.push('--config-path', config_file);
 
 	const buildInfo = {
 		started: new Date(),
