@@ -3,7 +3,7 @@ import {ethers} from 'ethers';
 import {test, after} from 'node:test';
 
 test('infinite gas: normal', () => launch());
-test('infinite gas: fork', () => launch('https://sepolia.drpc.org'));
+test('infinite gas: fork', () => launch('https://ethereum-sepolia-rpc.publicnode.com'));
 
 async function launch(fork) {
 	const foundry = await Foundry.launch({
