@@ -299,8 +299,10 @@ export async function compile(sol, options = {}) {
 	if (evmVersion) config.evm_version = evmVersion;
 	if (viaIR !== undefined) config.via_ir = !!viaIR;
 
+	// config_file is <root>/foundry.toml, which forge discovers via --root
+	// note: forge >= 1.10 rejects --root with --config-path
 	await writeFile(config_file, Toml.encode({profile: {[profile]: config}}));
-	args.push('--config-path', config_file);
+	//args.push('--config-path', config_file);
 
 	const buildInfo = {
 		started: new Date(),
@@ -764,6 +766,7 @@ export class FoundryDeployer extends FoundryBase {
 					this.cid,
 					'--root', this.root,
 					'--show-standard-json-input',
+					'--compiler-version', this.compiler
 				];
 				if (this.decodedArgs.length) {
 					args.push('--constructor-args', encodedArgs);
